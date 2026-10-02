@@ -1,0 +1,642 @@
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- État ---------- */
+  var S = {
+    me: '', refresh: null, programmes: [], recent: [],
+    view: 'home', prog: null, meeting: today(), tab: 'dossier', nonVus: false, limit: 60,
+    leader: '', supplier: '', withProp: false,
+    send: null
+  };
+  var app = document.getElementById('app');
+
+  /* ---------- Outils ---------- */
+  function run(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+      r[fn].apply(r, args);
+    });
+  }
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function fmt(d) {
+    if (!d) return '—';
+    var p = String(d).split('-');
+    return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d;
+  }
+  function errMsg(e) { return (e && e.message) ? e.message : String(e); }
+  var toastTimer;
+  function toast(msg, kind, link) {
+    var t = document.getElementById('toast');
+    t.className = 'toast' + (kind === 'err' ? ' err' : '');
+    t.innerHTML = esc(msg) + (link ? ' · <a href="' + esc(link.url) + '" target="_blank" rel="noopener" style="color:#fff;font-weight:700">' + esc(link.label) + '</a>' : '');
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, link ? 12000 : 4000);
+  }
+  function busy(on, label) {
+    document.getElementById('busy-label').textContent = label || 'Chargement…';
+    document.getElementById('busy').hidden = !on;
+  }
+  function isMail(s) { return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(s || '').trim()); }
+
+  var I = {
+    back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></svg>',
+    search: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+    chev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>',
+    clock: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    ext: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
+    wrench: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>',
+    doc: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>',
+    down: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>',
+    cal: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
+    x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    lock: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    send: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
+    ok: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>',
+    info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+    check: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>'
+  };
+
+  /* ---------- Rendu ---------- */
+  function render() {
+    if (S.view === 'home') app.innerHTML = homeView();
+    else if (S.view === 'prog') app.innerHTML = progView();
+    else app.innerHTML = sendView();
+    if (S.view === 'home') renderTiles('');
+    if (S.view === 'send' && S.send && S.send.html) setPreview(S.send.html);
+  }
+
+  function logohtml() {
+    return window.LOGO_SRC
+    ? '<img class="logo-img" src="' + esc(window.LOGO_SRC) + '" alt="Logo">'
+    : '<div class="logo">LOGO</div>';
+  }
+
+  function topbar() {
+    var r = S.refresh;
+    return '<div class="wrap topbar"><div class="brand">' + logohtml() + 'Pilotage des clôtures</div>' +
+      '<span class="meta">' + (r ? 'Extraction du ' + esc(r.date) + ' · ' + esc(r.week) : 'Aucune actualisation pour le moment') + '</span></div>';
+  }
+
+  /* Accueil */
+  function homeView() {
+    var recent = S.recent.length ? '<section aria-labelledby="t-rec"><h2 id="t-rec" class="eyebrow" style="margin-bottom:12px">Récemment consultés</h2><div class="grid3">' +
+      S.recent.map(function (r) {
+        return '<button type="button" class="tile tile-lg" data-act="open-prog" data-name="' + esc(r.name) + '">' +
+          '<span style="display:flex;align-items:center;gap:12px">' + I.clock + '<span class="tile-col"><span class="mono">' + esc(r.name) + '</span>' +
+          '<span class="mut sm">' + (r.lastReview ? 'Dernière revue le ' + fmt(r.lastReview) : 'Jamais revu') + '</span></span></span>' + I.chev + '</button>';
+      }).join('') + '</div></section>' : '';
+    var none = !S.programmes.length ? '<div class="empty">Aucune donnée calculée. Lancez « Actualiser les données maintenant » depuis le menu du fichier.</div>' : '';
+    return '<div class="top">' + topbar() + '<section class="hero"><div class="wrap">' +
+      '<h1>Quel programme voulez-vous analyser ?</h1>' +
+      '<p>Sélectionnez un programme pour voir ses dossiers encore ouverts, les solutions qui bloquent et les implémentations à lancer.</p>' +
+      '<label for="q">Rechercher un programme</label><div class="search">' + I.search +
+      '<input id="q" type="search" autocomplete="off" placeholder="Tapez un nom de programme"></div></div></section></div>' +
+      '<main class="wrap stack">' + recent + none +
+      '<section aria-labelledby="t-all"><div class="row-between" style="margin-bottom:12px"><h2 id="t-all" class="eyebrow">Tous les programmes</h2><span class="mut sm" id="count"></span></div>' +
+      '<div class="grid4" id="tiles"></div></section></main>';
+  }
+
+  function renderTiles(q) {
+    var tiles = document.getElementById('tiles');
+    if (!tiles) return;
+    var ql = q.trim().toLowerCase();
+    var list = S.programmes.filter(function (n) { return n.toLowerCase().indexOf(ql) !== -1; });
+    tiles.innerHTML = list.length ? list.map(function (n) {
+      return '<button type="button" class="tile" data-act="open-prog" data-name="' + esc(n) + '"><span class="mono">' + esc(n) + '</span>' + I.chev + '</button>';
+    }).join('') : (S.programmes.length ? '<div class="empty">Aucun programme ne correspond à « ' + esc(q) + ' »</div>' : '');
+    document.getElementById('count').textContent = list.length + (list.length > 1 ? ' programmes' : ' programme');
+  }
+
+  /* Vue programme */
+  function progView() {
+    var p = S.prog;
+    return '<div class="top">' + topbar() + progHeader(p) + '</div>' +
+      '<main class="wrap stack">' + kpis(p) + meetingBand(p) +
+      '<section class="card" style="min-width:0" id="analysis">' + analysis(p) + '</section>' +
+      '<section class="legend"><span><span class="pill-st">4/6</span> statut de la solution (fait foi)</span>' +
+      '<span><span class="impl" style="font-size:12px">IMPL</span> action à mener · statut outil indicatif</span>' +
+      '<span>Soldé si X/Y avec X = Y, ou ≥ 7/9 · sans solution = ouvert · la solution du programme prime sur celle du groupe</span></section>' +
+      '</main>';
+  }
+
+  function progHeader(p) {
+    var opts = S.programmes.map(function (n) { return '<option value="' + esc(n) + '"' + (n === p.name ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+    return '<div class="wrap phead">' +
+      '<button type="button" class="back" data-act="home">' + I.back + 'Tous les programmes</button>' +
+      '<div class="phead-row"><div style="display:flex;flex-direction:column;gap:6px">' +
+      '<div class="eyebrow" style="color:#AFC3E6">Programme</div><h1>' + esc(p.name) + '</h1>' +
+      '<div class="rate"><span>Taux de clôture du programme</span><span class="track"><span style="width:' + p.kpi.rate + '%"></span></span><b style="color:#fff">' + p.kpi.rate + ' %</b>' +
+      '<span class="mut" style="color:#C9D6EE">(' + (p.kpi.total - p.kpi.open) + ' cas soldés sur ' + p.kpi.total + ')</span></div></div>' +
+      '<div class="actions"><div class="select-wrap"><label for="switch">Changer de programme</label><select id="switch">' + opts + '</select></div>' +
+      '<button type="button" class="btn btn-ghost" data-act="export">' + I.down + 'Exporter le suivi</button>' +
+      '<button type="button" class="btn btn-white" data-act="send">' + I.doc + 'Exporter et envoyer la fiche</button></div></div></div>';
+  }
+
+  function spark(history) {
+    if (history.length < 2) return '';
+    var vals = history.map(function (h) { return h.open; });
+    var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals), n = vals.length;
+    var pts = vals.map(function (v, i) { return (i * 160 / (n - 1)).toFixed(1) + ',' + (4 + (mx - v) / ((mx - mn) || 1) * 32).toFixed(1); }).join(' ');
+    return '<svg width="130" height="40" viewBox="-4 0 168 40" role="img" aria-label="Évolution sur ' + n + ' semaines"><polyline points="' + pts + '" fill="none" stroke="#0063B2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
+
+  function seenStats(p) {
+    var seen = p.dossiers.filter(function (d) { return p.current[d.id] && p.current[d.id].vu; }).length;
+    var dec = p.dossiers.filter(function (d) { return p.current[d.id] && p.current[d.id].decision; }).length;
+    return { seen: seen, dec: dec, pct: p.kpi.open ? Math.round(seen / p.kpi.open * 100) : 0 };
+  }
+
+  function kpis(p) {
+    var k = p.kpi, st = seenStats(p);
+    var delta = k.delta == null ? 'Première semaine suivie' :
+      (k.delta < 0 ? '▼ ' + (-k.delta) : k.delta > 0 ? '▲ ' + k.delta : '= stable') + ' vs semaine précédente';
+    return '<section class="kpis" aria-label="Indicateurs du programme">' +
+      '<div class="kpi"><div class="lbl">cas ouverts</div><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px"><div class="num">' + k.open + '</div>' + spark(p.history) + '</div>' +
+      '<div class="sub"><b style="color:#0B4A85">' + esc(delta) + '</b> · <b style="color:#9A3412">' + k.nNew + ' nouveau' + (k.nNew > 1 ? 'x' : '') + '</b>' +
+      (k.withProp ? ' · ' + k.withProp + ' avec proposition en attente' : '') + '</div></div>' +
+      '<div class="kpi"><div class="lbl">Solutions</div><div class="num num-warn">' + k.sols + '</div><div class="sub">dont ' + k.solsGroup + ' héritées d’un groupe</div></div>' +
+      '<div class="kpi kpi-dark"><div class="lbl">' + I.wrench + 'Implémentations à traiter</div><div class="num">' + k.impls + '</div><div class="sub">le levier d’action du responsable</div></div>' +
+      '<div class="kpi" id="kpi-seen">' + seenKpiInner(p, st) + '</div></section>';
+  }
+
+  function seenKpiInner(p, st) {
+    return '<div class="lbl">' + I.cal + 'Revue du ' + fmt(S.meeting) + '</div>' +
+      '<div class="num num-blue">' + st.seen + ' <small>/ ' + p.kpi.open + ' vus</small></div>' +
+      '<div class="bar bar-lg"><span style="width:' + st.pct + '%;background:#0B4A85"></span></div>' +
+      '<div class="sub">' + st.dec + ' décision' + (st.dec > 1 ? 's' : '') + ' consignée' + (st.dec > 1 ? 's' : '') + '</div>';
+  }
+
+  function meetingBand(p) {
+    var chips = p.meetings.filter(function (m) { return m.date !== S.meeting; }).slice(0, 6).map(function (m) {
+      return '<button type="button" class="chip-btn" data-act="meeting" data-date="' + esc(m.date) + '">' + fmt(m.date) + ' <span class="mut">' + m.seen + ' vus</span></button>';
+    }).join('');
+    return '<section class="card meeting" aria-label="Réunion de suivi">' +
+      '<div class="fld"><label for="meeting">Date de la réunion</label><input id="meeting" type="date" value="' + esc(S.meeting) + '" style="width:190px"></div>' +
+      '<div class="fld grow"><span class="lbl">Réunions précédentes</span><div class="chips">' + (chips || '<span class="mut" style="min-height:44px;display:flex;align-items:center">Aucune pour ce programme</span>') + '</div></div>' +
+      '<p class="mut sm" style="margin:0;max-width:340px">Chaque case « vu », décision et échéance est enregistrée automatiquement et conservée d’une extraction à l’autre.</p></section>';
+  }
+
+  function analysis(p) {
+    var t = S.tab;
+    var label = t === 'cas' ? p.kpi.open + ' cas où le programme est encore ouvert'
+      : t === 'impl' ? aggImpls(filteredDossiers(p)).length + ' implémentations à lancer, triées par nombre de cas débloqués'
+      : 'Ce qui a été vu, décidé et promis, réunion après réunion';
+    var head = '<div class="ahead"><div><h2>Ce qui bloque au ' + esc(p.name) + '</h2><div class="mut sm">' + esc(label) + '</div></div>' +
+      '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><div class="seg" role="group" aria-label="Mode d’affichage">' +
+      segBtn('dossier', 'Par cas') + segBtn('impl', 'Par implémentation') + segBtn('suivi', 'Suivi des réunions') + '</div>' +
+      '</div></div>' + (t !== 'suivi' && p.kpi.open ? filterBar(p) : '');
+    if (!p.kpi.open && t !== 'suivi') {
+      return head + '<div class="blank">' + I.check + '<div class="cond">Aucun cas ouvert pour ce programme</div><div class="mut">Toutes ses solutions sont soldées dans l’extraction de la semaine.</div></div>';
+    }
+    if (t === 'impl') return head + implList(p);
+    if (t === 'suivi') return head + suiviView(p);
+    return head + dossierList(p);
+  }
+  function segBtn(id, label) {
+    return '<button type="button" data-act="tab" data-tab="' + id + '" aria-pressed="' + (S.tab === id) + '">' + label + '</button>';
+  }
+
+  function options(list, current, allLabel) {
+    return '<option value="">' + allLabel + '</option>' + list.map(function (v) {
+      return '<option value="' + esc(v) + '"' + (v === current ? ' selected' : '') + '>' + esc(v) + '</option>';
+    }).join('');
+  }
+
+  function filterBar(p) {
+    var f = p.filters || { leaders: [], suppliers: [] };
+    return '<div class="filters">' +
+      '<div class="fld"><label for="f-leader">Case leader</label><select id="f-leader">' + options(f.leaders, S.leader, 'Tous') + '</select></div>' +
+      '<div class="fld"><label for="f-supplier">Fournisseur</label><select id="f-supplier">' + options(f.suppliers, S.supplier, 'Tous') + '</select></div>' +
+      (S.tab === 'dossier'
+        ? '<label class="chk"><input type="checkbox" id="nonvus"' + (S.nonVus ? ' checked' : '') + '> Non vus uniquement</label>' +
+          '<label class="chk"><input type="checkbox" id="withprop"' + (S.withProp ? ' checked' : '') + '> Avec proposition en attente</label>'
+        : '') +
+      ((S.leader || S.supplier) ? '<button type="button" class="btn btn-link" data-act="clear-filters">Effacer les filtres</button>' : '') +
+      '</div>';
+  }
+
+  function filteredDossiers(p) {
+    return p.dossiers.filter(function (d) {
+      return (!S.leader || d.leader === S.leader) && (!S.supplier || d.supplier === S.supplier);
+    });
+  }
+
+  /* Implémentations des solutions bloquantes, recalculées selon les filtres. */
+  function aggImpls(dossiers) {
+    var map = {}, order = [];
+    dossiers.forEach(function (d) {
+      d.sols.forEach(function (s) {
+        s.impls.forEach(function (im) {
+          var a = map[im.key];
+          if (!a) { a = map[im.key] = { type: im.type, status: im.status, resp: im.resp, sols: [], dossiers: [] }; order.push(im.key); }
+          var label = s.name || s.type;
+          if (label && a.sols.indexOf(label) === -1) a.sols.push(label);
+          if (a.dossiers.indexOf(d.id) === -1) a.dossiers.push(d.id);
+        });
+      });
+    });
+    return order.map(function (k) { return map[k]; })
+      .sort(function (x, y) { return (y.dossiers.length - x.dossiers.length) || String(x.type).localeCompare(String(y.type), 'fr'); });
+  }
+
+  function dossierList(p) {
+    var list = filteredDossiers(p).filter(function (d) {
+      return (!S.nonVus || !(p.current[d.id] && p.current[d.id].vu)) && (!S.withProp || d.proposals.length);
+    });
+    var shown = list.slice(0, S.limit);
+    var rows = shown.map(function (d, i) { return dossierRow(p, d, i); }).join('');
+    var more = list.length > shown.length
+      ? '<div class="more"><span>' + shown.length + ' cas affichés sur ' + list.length + '</span><button type="button" class="btn" data-act="more">Afficher plus</button></div>'
+      : '<div class="more"><span>' + (list.length ? list.length + ' cas' + (list.length > 1 ? 's' : '') + ' · tri par nombre de solutions' : 'Aucun cas ne correspond aux filtres') + '</span></div>';
+    return '<div class="thead cols-d"><span>cas</span><span>Groupe</span><span>Solutions et implémentations</span><span>Outil</span></div>' + rows + more;
+  }
+
+  function dossierRow(p, d, i) {
+    var c = p.current[d.id] || {};
+    var pct = d.solTotal ? Math.round(d.solDone / d.solTotal * 100) : 0;
+    var sols = '';
+    if (d.noSolution) {
+      sols += '<div class="sol nosol">Aucune solution appliquée' +
+        (d.proposals.length ? ' · ' + d.proposals.length + ' proposée' + (d.proposals.length > 1 ? 's' : '') + ' en attente' : '') + '</div>';
+    }
+    sols += d.sols.map(solBlock).join('');
+    if (d.proposals.length) sols += propBlock(d);
+    var info = [
+      d.leader ? '<span><span class="k">Case leader</span> ' + esc(d.leader) + '</span>' : '',
+      d.supplier ? '<span><span class="k">Fournisseur</span> ' + esc(d.supplier) + '</span>' : ''
+    ].join('');
+    return '<article class="drow-wrap' + (c.vu ? ' is-seen' : '') + '" data-dossier="' + esc(d.id) + '">' +
+      '<div class="drow cols-d">' +
+      '<div style="display:flex;flex-direction:column;gap:6px">' +
+      '<div class="idline"><span class="mono">' + esc(d.id) + '</span>' + (d.isNew ? '<span class="badge-new">Nouveau</span>' : '') + '</div>' +
+      '<div class="idline">' + (d.og ? '<span class="tag">' + esc(d.og) + '</span>' : '') + (d.status ? '<span class="tag tag-soft">' + esc(d.status) + '</span>' : '') + '</div>' +
+      (info ? '<div class="dinfo">' + info + '</div>' : '') +
+      '<div class="mut sm">' + d.solDone + ' / ' + d.solTotal + ' solutions soldées</div><div class="bar"><span style="width:' + pct + '%"></span></div></div>' +
+      '<div style="font-size:14px;line-height:1.5">' + d.groups.map(esc).join('<br>') + '</div>' +
+      '<div class="sols">' + sols + '</div>' +
+      '<div><a class="btn" href="' + esc(d.url) + '" target="_blank" rel="noopener" aria-label="Ouvrir le cas ' + esc(d.id) + ' dans TOM">Ouvrir ' + I.ext + '</a></div>' +
+      '</div>' +
+      '<div class="track">' +
+      '<label class="chk"><input type="checkbox" data-f="vu"' + (c.vu ? ' checked' : '') + '> Vu en réunion du ' + fmt(S.meeting) + '</label>' +
+      '<div class="fld grow"><label for="dec-' + i + '">Décision du programme</label><input id="dec-' + i + '" type="text" data-f="decision" maxlength="1000" value="' + esc(c.decision || '') + '" placeholder="ex. implémentation lancée, clôture visée fin novembre"></div>' +
+      '<div class="fld w180"><label for="due-' + i + '">Échéance annoncée</label><input id="due-' + i + '" type="date" data-f="due" value="' + esc(c.due || '') + '"></div>' +
+      '<span class="saved" aria-live="polite"></span></div></article>';
+  }
+
+  function implChips(impls) {
+    return impls.map(function (im) {
+      var info = [im.resp ? 'réf. ' + im.resp : '', im.status ? 'outil : ' + im.status : ''].filter(Boolean).join(' · ');
+      return '<span class="impl-wrap"><span class="impl">' + I.wrench + esc(im.type || 'Implémentation') + '</span>' +
+        (info ? '<span class="info">' + esc(info) + '</span>' : '') + '</span>';
+    }).join('');
+  }
+
+  function solTitle(s) {
+    return '<span class="sol-name">' + esc(s.name || s.type || 'Solution') + '</span>' +
+      (s.name && s.type ? '<span class="mut sm">' + esc(s.type) + '</span>' : '');
+  }
+
+  function solBlock(s) {
+    var origin = s.origin === 'Groupe'
+      ? '<span class="badge-grp">Héritée du groupe ' + esc(s.group) + '</span>'
+      : '<span class="badge-prg">Propre au programme</span>';
+    var impls = s.impls.length
+      ? '<div class="impls"><span class="xs-lbl">À implémenter</span>' + implChips(s.impls) + '</div>'
+      : '<div class="mut sm">Aucune implémentation renseignée</div>';
+    return '<div class="sol"><div class="sol-head">' + solTitle(s) +
+      '<span class="pill-st">' + esc(s.status || '—') + '</span>' + origin + '</div>' + impls + '</div>';
+  }
+
+  function propBlock(d) {
+    var q = d.sols.length
+      ? 'La solution appliquée fait foi. Une décision est-elle à prendre ?'
+      : 'Aucune solution n’est appliquée. Une décision est-elle à prendre ?';
+    return '<div class="prop"><div class="prop-head">' + I.info + '<b>Proposition' + (d.proposals.length > 1 ? 's' : '') + ' en attente</b><span class="mut sm">pour information, hors calcul</span></div>' +
+      d.proposals.map(function (s) {
+        return '<div class="prop-item"><div class="sol-head">' + solTitle(s) +
+          '<span class="mut sm">' + (s.origin === 'Groupe' ? 'groupe ' + esc(s.group) : 'propre au programme') + '</span></div>' +
+          (s.impls.length ? '<div class="impls">' + implChips(s.impls) + '</div>' : '') + '</div>';
+      }).join('') +
+      '<div class="prop-q">' + q + '</div></div>';
+  }
+
+  function implList(p) {
+    var impls = aggImpls(filteredDossiers(p));
+    if (!impls.length) return '<div class="blank"><div class="cond">Aucune implémentation renseignée</div><div class="mut">Les solutions affichées n’ont pas encore d’implémentation.</div></div>';
+    return '<div class="thead cols-i"><span>Implémentation</span><span>Solutions · cas concernés</span><span>cas débloqués</span><span>Statut outil (info)</span></div>' +
+      impls.map(function (im) {
+        var ids = im.dossiers.slice(0, 6).join(' · ') + (im.dossiers.length > 6 ? '  +' + (im.dossiers.length - 6) : '');
+        return '<div class="irow cols-i"><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start"><span class="impl impl-lg">' + I.wrench + esc(im.type || 'Implémentation') + '</span>' +
+          (im.resp ? '<span class="mut sm">réf. ' + esc(im.resp) + '</span>' : '') + '</div>' +
+          '<div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:14px;font-weight:600">' + esc(im.sols.join(', ')) + '</span><span class="mono mut sm">' + esc(ids) + '</span></div>' +
+          '<div style="display:flex;align-items:baseline;gap:6px"><span class="big">' + im.dossiers.length + '</span><span class="mut sm">cas' + (im.dossiers.length > 1 ? 's' : '') + '</span></div>' +
+          '<div class="info" style="font-size:14px">' + esc(im.status || '—') + '</div></div>';
+      }).join('');
+  }
+
+  function suiviView(p) {
+    var meetings = p.meetings.map(function (m) {
+      var cur = m.date === S.meeting;
+      return '<button type="button" class="mcard" data-act="meeting" data-date="' + esc(m.date) + '" aria-pressed="' + cur + '">' +
+        '<span style="display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%"><span class="cond">' + fmt(m.date) + '</span>' +
+        (cur ? '<span class="st-done">Affichée</span>' : '') + '</span>' +
+        '<span class="mut sm">' + m.seen + ' sujet' + (m.seen > 1 ? 's' : '') + ' vu' + (m.seen > 1 ? 's' : '') + ' · ' + m.decisions + ' décision' + (m.decisions > 1 ? 's' : '') + '</span></button>';
+    }).join('');
+    var decs = p.decisions.length ? p.decisions.map(function (d) {
+      var st = !d.open ? '<span class="st-done">Soldé depuis</span>' : d.late ? '<span class="st-late">Échéance dépassée</span>' : '<span class="st-open">Toujours ouvert</span>';
+      return '<div class="decrow cols-dec"><span class="mono strong" style="color:#00205B">' + esc(d.dossier) + '</span><span>' + esc(d.decision) + '</span>' +
+        '<span class="strong" style="color:' + (d.late ? '#9A3412' : '#0B1B33') + '">' + fmt(d.due) + '</span><span class="mut sm">' + fmt(d.meeting) + '</span><span>' + st + '</span></div>';
+    }).join('') : '<div class="blank"><div class="cond">Aucune décision consignée</div><div class="mut">Les décisions saisies en réunion apparaîtront ici avec leur échéance.</div></div>';
+    return '<div class="suivi"><div style="display:flex;flex-direction:column;gap:10px"><h3 class="eyebrow">Historique des réunions</h3>' + meetings + '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px;min-width:0"><h3 class="eyebrow">Décisions et engagements</h3><div class="box">' +
+      (p.decisions.length ? '<div class="thead cols-dec"><span>cas</span><span>Décision</span><span>Échéance</span><span>Réunion</span><span>État actuel</span></div>' : '') +
+      decs + '</div></div></div>';
+  }
+
+  function renderAnalysis() {
+    var el = document.getElementById('analysis');
+    if (el) el.innerHTML = analysis(S.prog);
+  }
+
+  /* Envoi */
+  function sendView() {
+    var p = S.prog, s = S.send;
+    var head = '<div class="top"><div class="wrap topbar"><div class="brand">' + logohtml() + 'Envoyer la fiche de revue · <span class="mono" style="letter-spacing:0;text-transform:none;color:#fff;font-size:16px">' + esc(p.name) + '</span></div>' +
+      '<button type="button" class="btn btn-ghost" data-act="back-prog">' + I.back + 'Retour au programme</button></div></div>';
+    var left = '<div class="preview"><div style="align-self:stretch;display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+      '<span class="eyebrow">Aperçu du PDF · réunion du ' + fmt(S.meeting) + '</span></div>' +
+      '<div class="frame"><iframe id="preview" title="Aperçu de la fiche" sandbox=""></iframe></div>' +
+      '<span class="mut sm">Faites défiler l’aperçu pour voir toute la fiche.</span></div>';
+    var right = s.result ? sentView(s.result) : sendForm(p, s);
+    return head + '<div class="send">' + left + '<div class="form card" style="border-radius:0;border:0">' + right + '</div></div>';
+  }
+
+  function sendForm(p, s) {
+    var hint = (p.lastTo && p.lastTo.length) ? '<div class="hint">' + I.clock + 'Pré-rempli avec le dernier destinataire de ' + esc(p.name) + '</div>' : '';
+    return '<div class="form-body">' +
+      recipField('to', 'À · responsable et destinataires', 'Nom ou adresse…') + hint +
+      recipField('cc', 'Cc', 'Ajouter une personne en copie…') +
+      '<div class="fld"><label for="subj">Objet</label><input id="subj" type="text" maxlength="250" value="' + esc(s.subject) + '"></div>' +
+      '<div class="fld"><label for="body">Message</label><textarea id="body" rows="8" maxlength="10000">' + esc(s.bodyTouched ? s.body : defaultBody()) + '</textarea></div>' +
+      '<div class="attach"><span class="pdf">PDF</span><span style="display:flex;flex-direction:column"><span class="mono strong" style="font-size:14px">Revue_' + esc(p.name) + '_' + esc(S.meeting) + '.pdf</span><span class="mut sm">Généré à l’envoi · liens TOM cliquables</span></span></div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:4px 24px"><label class="chk"><input type="checkbox" id="opt-drive"' + (s.saveDrive ? ' checked' : '') + '> Copie dans le cas Drive des revues</label>' +
+      '<label class="chk"><input type="checkbox" id="opt-log"' + (s.log ? ' checked' : '') + '> Consigner l’envoi dans le suivi</label></div>' +
+      '</div><div class="form-foot"><button type="button" class="btn" data-act="back-prog" style="border-color:transparent">Annuler</button>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="btn" data-act="pdf-drive">' + I.down + 'Ouvrir le PDF</button>' +
+      '<button type="button" class="btn btn-primary" data-act="do-send" id="do-send"' + (s.to.length ? '' : ' disabled') + '>' + I.send + 'Envoyer via Gmail</button></div></div>';
+  }
+
+  function recipField(field, label, ph) {
+    return '<div class="fld recip"><label for="in-' + field + '">' + label + '</label>' +
+      '<div class="recip-box"><span id="chips-' + field + '" style="display:contents">' + chipsHtml(field) + '</span>' +
+      '<input id="in-' + field + '" data-recip="' + field + '" type="text" autocomplete="off" placeholder="' + ph + '" aria-autocomplete="list" aria-controls="sugg-' + field + '"></div>' +
+      '<div class="sugg" id="sugg-' + field + '" role="listbox" hidden></div></div>';
+  }
+
+  function chipsHtml(field) {
+    var s = S.send, html = '';
+    if (field === 'cc') {
+      html += '<span class="person person-locked" title="Vous êtes toujours en copie">' + I.lock + '<span class="who"><b>Vous</b><span>' + esc(S.me) + '</span></span></span>';
+    }
+    return html + s[field].map(function (c) {
+      return '<span class="person"><span class="who"><b>' + esc(c.name || c.email) + '</b><span>' + esc(c.email) + '</span></span>' +
+        '<button type="button" class="x" data-act="rm" data-field="' + field + '" data-email="' + esc(c.email) + '" aria-label="Retirer ' + esc(c.name || c.email) + '">' + I.x + '</button></span>';
+    }).join('');
+  }
+
+  function renderRecip(field) {
+    var el = document.getElementById('chips-' + field);
+    if (el) el.innerHTML = chipsHtml(field);
+    var btn = document.getElementById('do-send');
+    if (btn) btn.disabled = !S.send.to.length;
+    if (field === 'to' && !S.send.bodyTouched) {
+      var b = document.getElementById('body');
+      if (b) b.value = defaultBody();
+    }
+  }
+
+  function renderSugg(field) {
+    var box = document.getElementById('sugg-' + field);
+    if (!box) return;
+    var list = S.send.sugg[field] || [];
+    box.hidden = !list.length;
+    box.innerHTML = list.map(function (pp, i) {
+      return '<button type="button" role="option" data-act="add" data-field="' + field + '" data-idx="' + i + '">' +
+        '<span style="display:flex;flex-direction:column"><span class="n">' + esc(pp.name || pp.email) + '</span><span class="e">' + esc(pp.email) + '</span></span>' +
+        '<span class="e">' + esc(pp.title || '') + '</span></button>';
+    }).join('') + (list.length ? '<div class="mut" style="padding:6px 10px 2px;font-size:12px">Résultats de l’annuaire de l’entreprise</div>' : '');
+  }
+
+  function defaultBody() {
+    var p = S.prog, s = S.send, first = '';
+    if (s && s.to[0] && s.to[0].name && s.to[0].name.indexOf('@') === -1) first = ' ' + s.to[0].name.split(' ')[0];
+    var k = p.kpi;
+    return 'Bonjour' + first + ',\n\n' +
+      'Vous trouverez ci-joint le compte rendu de la revue du ' + fmt(S.meeting) + ' pour le programme ' + p.name + ' : ' +
+      'les ' + k.open + ' cas encore ouverts, les ' + k.impls + ' implémentations à traiter et les décisions prises en séance.\n\n' +
+      'Chaque cas s’ouvre directement dans TOM depuis le PDF.\n\nBien cordialement,';
+  }
+
+  function sentView(r) {
+    return '<div class="done"><div class="ok">' + I.ok + '</div><h2>Fiche envoyée</h2>' +
+      '<p style="margin:0;font-size:16px;max-width:480px">Envoyée à <b>' + esc(r.to.join(', ')) + '</b>' + (r.cc.length ? ', copie à ' + esc(r.cc.join(', ')) : '') + '.</p>' +
+      (r.link ? '<p class="mut" style="margin:0">Une copie du PDF est rangée dans le cas Drive des revues · <a href="' + esc(r.link) + '" target="_blank" rel="noopener">ouvrir</a></p>' : '') +
+      '<div style="display:flex;gap:10px;margin-top:8px"><button type="button" class="btn" data-act="new-send">Nouvel envoi</button>' +
+      '<button type="button" class="btn btn-primary" data-act="back-prog">Revenir au programme</button></div></div>';
+  }
+
+  function setPreview(html) {
+    var f = document.getElementById('preview');
+    if (f) f.srcdoc = html;
+  }
+
+  /* ---------- Actions ---------- */
+  function loadHome() {
+    busy(true);
+    return run('apiHome').then(function (h) {
+      S.me = h.me; S.refresh = h.refresh; S.programmes = h.programmes; S.recent = h.recent;
+      S.view = 'home'; render();
+      var q = document.getElementById('q'); if (q) q.focus();
+    }).catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
+  }
+
+  function loadProgramme(name, meeting, keepTab) {
+    busy(true, 'Calcul de la vue ' + name + '…');
+    return run('apiProgramme', name, meeting || S.meeting).then(function (m) {
+      S.prog = m; S.meeting = m.meeting; S.view = 'prog'; S.limit = 60;
+      if (!keepTab) { S.tab = 'dossier'; S.nonVus = false; S.leader = ''; S.supplier = ''; S.withProp = false; }
+      render(); window.scrollTo(0, 0);
+    }).catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
+  }
+
+  function saveTrack(article) {
+    var id = article.getAttribute('data-dossier');
+    var vu = article.querySelector('[data-f="vu"]').checked;
+    var decision = article.querySelector('[data-f="decision"]').value.trim();
+    var due = article.querySelector('[data-f="due"]').value;
+    S.prog.current[id] = { vu: vu, decision: decision, due: due };
+    article.classList.toggle('is-seen', vu);
+    var k = document.getElementById('kpi-seen');
+    if (k) k.innerHTML = seenKpiInner(S.prog, seenStats(S.prog));
+    var flag = article.querySelector('.saved');
+    flag.textContent = 'Enregistrement…';
+    run('apiSaveSuivi', { programme: S.prog.name, date: S.meeting, dossier: id, vu: vu, decision: decision, due: due })
+      .then(function () { flag.textContent = 'Enregistré'; setTimeout(function () { flag.textContent = ''; }, 2500); })
+      .catch(function (e) { flag.textContent = ''; toast('Non enregistré : ' + errMsg(e), 'err'); });
+  }
+
+  function openSend() {
+    var p = S.prog;
+    S.send = {
+      to: (p.lastTo || []).filter(function (x) { return isMail(x.email); }).map(function (x) { return { name: x.name || '', email: x.email }; }),
+      cc: [], subject: '[Revue programme] ' + p.name + ' · compte rendu du ' + fmt(S.meeting),
+      body: '', bodyTouched: false, saveDrive: true, log: true,
+      sugg: { to: [], cc: [] }, html: null, result: null
+    };
+    S.view = 'send'; render(); window.scrollTo(0, 0);
+    run('apiFicheHtml', p.name, S.meeting).then(function (html) { S.send.html = html; setPreview(html); })
+      .catch(function (e) { toast('Aperçu indisponible : ' + errMsg(e), 'err'); });
+  }
+
+  function taken(email) {
+    email = email.toLowerCase();
+    return email === String(S.me).toLowerCase() ||
+      S.send.to.concat(S.send.cc).some(function (c) { return c.email.toLowerCase() === email; });
+  }
+
+  function addPerson(field, person) {
+    if (!person || !isMail(person.email) || taken(person.email)) return;
+    S.send[field].push({ name: person.name || '', email: person.email.trim() });
+    S.send.sugg[field] = [];
+    var input = document.getElementById('in-' + field);
+    if (input) { input.value = ''; input.focus(); }
+    renderRecip(field); renderSugg(field);
+  }
+
+  var searchTimers = {};
+  function searchPeople(field, q) {
+    clearTimeout(searchTimers[field]);
+    if (q.trim().length < 2) { S.send.sugg[field] = []; renderSugg(field); return; }
+    searchTimers[field] = setTimeout(function () {
+      run('apiSearchPeople', q).then(function (list) {
+        var input = document.getElementById('in-' + field);
+        if (!input || input.value !== q) return;
+        S.send.sugg[field] = (list || []).filter(function (pp) { return !taken(pp.email); });
+        renderSugg(field);
+      }).catch(function () {
+        toast('Annuaire indisponible : saisissez l’adresse complète puis Entrée.', 'err');
+      });
+    }, 300);
+  }
+
+  function doSend() {
+    var s = S.send;
+    if (!s.to.length) return;
+    var payload = {
+      programme: S.prog.name, meeting: S.meeting, to: s.to, cc: s.cc,
+      subject: document.getElementById('subj').value,
+      body: document.getElementById('body').value,
+      saveDrive: document.getElementById('opt-drive').checked,
+      log: document.getElementById('opt-log').checked
+    };
+    busy(true, 'Génération du PDF et envoi…');
+    run('apiSendFiche', payload).then(function (r) {
+      s.result = r; s.subject = payload.subject; s.body = payload.body; s.bodyTouched = true;
+      render();
+    }).catch(function (e) { toast('Envoi impossible : ' + errMsg(e), 'err'); }).then(function () { busy(false); });
+  }
+
+  /* ---------- Événements ---------- */
+  app.addEventListener('click', function (ev) {
+    var el = ev.target.closest('[data-act]');
+    if (!el) return;
+    var act = el.getAttribute('data-act');
+    if (act === 'open-prog') loadProgramme(el.getAttribute('data-name'), today());
+    else if (act === 'home') loadHome();
+    else if (act === 'tab') {
+      S.tab = el.getAttribute('data-tab');
+      if (S.tab === 'suivi') loadProgramme(S.prog.name, S.meeting, true);
+      else renderAnalysis();
+    }
+    else if (act === 'more') { S.limit += 60; renderAnalysis(); }
+    else if (act === 'clear-filters') { S.leader = ''; S.supplier = ''; S.limit = 60; renderAnalysis(); }
+    else if (act === 'meeting') loadProgramme(S.prog.name, el.getAttribute('data-date'), true);
+    else if (act === 'export') {
+      busy(true, 'Création de l’export…');
+      run('apiExportSuivi', S.prog.name, S.meeting)
+        .then(function (r) { toast('Export créé dans le cas Drive des revues', '', { url: r.url, label: 'Ouvrir' }); })
+        .catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
+    }
+    else if (act === 'send') openSend();
+    else if (act === 'back-prog') loadProgramme(S.prog.name, S.meeting, true);
+    else if (act === 'pdf-drive') {
+      busy(true, 'Génération du PDF…');
+      run('apiPdfToDrive', S.prog.name, S.meeting)
+        .then(function (r) { toast('PDF enregistré dans Drive', '', { url: r.url, label: 'Ouvrir' }); })
+        .catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
+    }
+    else if (act === 'rm') {
+      var f = el.getAttribute('data-field'), em = el.getAttribute('data-email');
+      S.send[f] = S.send[f].filter(function (c) { return c.email !== em; });
+      renderRecip(f);
+    }
+    else if (act === 'add') {
+      var fld = el.getAttribute('data-field');
+      addPerson(fld, S.send.sugg[fld][Number(el.getAttribute('data-idx'))]);
+    }
+    else if (act === 'do-send') doSend();
+    else if (act === 'new-send') { S.send.result = null; render(); }
+  });
+
+  app.addEventListener('input', function (ev) {
+    var t = ev.target;
+    if (t.id === 'q') renderTiles(t.value);
+    else if (t.hasAttribute('data-recip')) searchPeople(t.getAttribute('data-recip'), t.value);
+    else if (t.id === 'body') { S.send.bodyTouched = true; S.send.body = t.value; }
+    else if (t.id === 'subj') S.send.subject = t.value;
+  });
+
+  app.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (t.id === 'switch') loadProgramme(t.value, today());
+    else if (t.id === 'meeting') { if (/^\d{4}-\d{2}-\d{2}$/.test(t.value)) loadProgramme(S.prog.name, t.value, true); }
+    else if (t.id === 'nonvus') { S.nonVus = t.checked; S.limit = 60; renderAnalysis(); }
+    else if (t.id === 'withprop') { S.withProp = t.checked; S.limit = 60; renderAnalysis(); }
+    else if (t.id === 'f-leader') { S.leader = t.value; S.limit = 60; renderAnalysis(); }
+    else if (t.id === 'f-supplier') { S.supplier = t.value; S.limit = 60; renderAnalysis(); }
+    else if (t.id === 'opt-drive') S.send.saveDrive = t.checked;
+    else if (t.id === 'opt-log') S.send.log = t.checked;
+    else if (t.hasAttribute('data-f')) saveTrack(t.closest('[data-dossier]'));
+  });
+
+  app.addEventListener('keydown', function (ev) {
+    var t = ev.target;
+    if (!t.hasAttribute || !t.hasAttribute('data-recip')) return;
+    var field = t.getAttribute('data-recip');
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      var list = S.send.sugg[field] || [];
+      if (list.length) addPerson(field, list[0]);
+      else if (isMail(t.value)) addPerson(field, { name: '', email: t.value.trim() });
+      else if (t.value.trim()) toast('Adresse e-mail invalide.', 'err');
+    } else if (ev.key === 'Escape') {
+      S.send.sugg[field] = []; renderSugg(field);
+    } else if (ev.key === 'Backspace' && !t.value && S.send[field].length) {
+      S.send[field].pop(); renderRecip(field);
+    }
+  });
+
+  loadHome();
+})();
+</script>
