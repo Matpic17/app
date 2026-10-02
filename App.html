@@ -177,6 +177,8 @@
       });
     });
     r.impls = Object.keys(impl).length;
+    // Sans filtre : on reprend le total calculé par l'actualisation (onglet _Programmes), toujours fiable.
+    if (!filtersActive()) r.closed = Math.max(0, p.kpi.total - p.kpi.open);
     r.total = r.open + r.closed;
     r.rate = r.total ? Math.round(r.closed / r.total * 100) : 0;
     r.pct = r.open ? Math.round(r.seen / r.open * 100) : 0;
