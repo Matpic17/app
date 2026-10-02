@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <?!= include_('Styles'); ?>
+</head>
+<body>
+  <div id="app" aria-live="polite"></div>
+  <div id="busy" class="busy" hidden><div class="spinner" aria-hidden="true"></div><span id="busy-label">Chargement…</span></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script>window.LOGO_SRC = <?!= JSON.stringify(CFG.LOGO_URL ||'') ?>;</script>
+  <?!= include_('App'); ?>
+</body>
+</html>
