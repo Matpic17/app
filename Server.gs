@@ -292,13 +292,75 @@ function makePdf_(m) {
   return Utilities.newBlob(renderFiche_(m), 'text/html', 'fiche.html').getAs('application/pdf').setName(ficheName_(m));
 }
 
-function apiFicheHtml(name, meeting) {
-  return renderFiche_(buildProgrammeModel_(String(name), meeting));
+function apiFicheHtml(name, meeting, filters) {
+  return renderFiche_(applyFilters_(buildProgrammeModel_(String(name), meeting), filters));
 }
 
-function apiPdfToDrive(name, meeting) {
-  const file = reviewsFolder_().createFile(makePdf_(buildProgrammeModel_(String(name), meeting)));
+function apiPdfToDrive(name, meeting, filters) {
+  const file = reviewsFolder_().createFile(makePdf_(applyFilters_(buildProgrammeModel_(String(name), meeting), filters)));
   return { url: file.getUrl(), name: file.getName() };
+}
+
+/**
+ * Restreint un modèle de programme aux filtres de l'interface :
+ * OG (plusieurs possibles), case leader, fournisseur, et éventuellement les seuls cas vus en réunion.
+ * Les indicateurs portent sur les cas filtrés ; « vus uniquement » ne réduit que le détail.
+ */
+function applyFilters_(m, f) {
+  f = f || {};
+  const ogs = Array.isArray(f.ogs) ? f.ogs.map(String) : [];
+  const leader = String(f.leader || ''), supplier = String(f.supplier || ''), seenOnly = !!f.seenOnly;
+  const active = !!(ogs.length || leader || supplier);
+  if (!active && !seenOnly) return m;
+
+  const match = function (d) {
+    return (!ogs.length || ogs.indexOf(d.og) !== -1) && (!leader || d.leader === leader) && (!supplier || d.supplier === supplier);
+  };
+  const seen = function (d) { return m.current[d.id] && m.current[d.id].vu; };
+  const inScope = m.dossiers.filter(match);
+  const closed = (m.closed || []).filter(match);
+  const shown = seenOnly ? inScope.filter(seen) : inScope;
+
+  const k = { sols: 0, solsGroup: 0, nNew: 0, withProp: 0, seen: 0 };
+  const impl = {};
+  inScope.forEach(function (d) {
+    if (d.isNew) k.nNew++;
+    if (d.nProposals) k.withProp++;
+    if (seen(d)) k.seen++;
+    blockingSols_(d).forEach(function (s) {
+      k.sols++;
+      if (s.origin === 'Groupe') k.solsGroup++;
+      s.impls.forEach(function (im) { impl[im.key] = 1; });
+    });
+  });
+  const open = inScope.length;
+  const nClosed = active ? closed.length : Math.max(0, m.kpi.total - m.kpi.open);
+  const total = open + nClosed;
+
+  const ids = {};
+  inScope.concat(closed).forEach(function (d) { ids[d.id] = 1; });
+  const shownIds = {};
+  shown.forEach(function (d) { shownIds[d.id] = 1; });
+
+  const parts = [];
+  if (ogs.length) parts.push('OG : ' + ogs.join(', '));
+  if (leader) parts.push('Case leader : ' + leader);
+  if (supplier) parts.push('Fournisseur : ' + supplier);
+
+  return Object.assign({}, m, {
+    dossiers: shown,
+    closed: closed,
+    impls: aggregateImpls_(shown),
+    decisions: m.decisions.filter(function (x) { return active ? ids[x.dossier] : true; })
+      .filter(function (x) { return !seenOnly || shownIds[x.dossier] || !x.open; }),
+    kpi: Object.assign({}, m.kpi, {
+      open: open, total: total, rate: total ? Math.round(nClosed / total * 100) : 0,
+      sols: k.sols, solsGroup: k.solsGroup, impls: Object.keys(impl).length,
+      nNew: k.nNew, withProp: k.withProp, seen: k.seen, delta: active ? null : m.kpi.delta
+    }),
+    filterLabel: parts.join(' · '),
+    detailNote: seenOnly ? 'Cas vus en réunion uniquement : ' + shown.length + ' sur ' + open : ''
+  });
 }
 
 /* ---------- Envoi Gmail ---------- */
@@ -315,7 +377,7 @@ function apiSendFiche(p) {
 
   const me = Session.getActiveUser().getEmail().toLowerCase();
   const cc = Array.from(new Set([me].concat(ccIn))).filter(function (e) { return e && to.indexOf(e) === -1; });
-  const m = buildProgrammeModel_(String(p.programme), p.meeting);
+  const m = applyFilters_(buildProgrammeModel_(String(p.programme), p.meeting), p.filters);
   const pdf = makePdf_(m);
 
   GmailApp.sendEmail(to.join(','), subject, body, { cc: cc.join(','), attachments: [pdf], name: CFG.APP_NAME });
@@ -335,8 +397,8 @@ function apiSendFiche(p) {
 
 /* ---------- Export du suivi (Google Sheets) ---------- */
 
-function apiExportSuivi(name, meeting) {
-  const m = buildProgrammeModel_(String(name), meeting);
+function apiExportSuivi(name, meeting, filters) {
+  const m = applyFilters_(buildProgrammeModel_(String(name), meeting), filters);
   const header = ['Programme', 'Cas', 'OG', 'Statut', 'Case leader', 'Fournisseur', 'Nouveau', 'Groupe',
     'Nature', 'Nom solution', 'Type solution', 'Statut solution', 'Origine',
     'Type implémentation', 'Réf. responsable', 'Statut outil (info)',
@@ -360,7 +422,7 @@ function apiExportSuivi(name, meeting) {
       g.done.forEach(function (s) { add('Soldée', s); });
     });
   });
-  const ss = SpreadsheetApp.create('Suivi ' + m.name + ' – revue du ' + fmtDate_(m.meeting));
+  const ss = SpreadsheetApp.create('Suivi ' + m.name + ' – revue du ' + fmtDate_(m.meeting) + (m.filterLabel ? ' (' + m.filterLabel + ')' : ''));
   const sh = ss.getSheets()[0].setName('Suivi');
   sh.getRange(1, 1, rows.length + 1, header.length).setNumberFormat('@');
   sh.getRange(1, 1, 1, header.length).setValues([header])

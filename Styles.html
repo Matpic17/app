@@ -189,6 +189,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .person .who b{font-size:14px;color:var(--navy)} .person .who span{font-size:12px;color:var(--muted)}
 .x{width:28px;height:28px;border-radius:999px;border:0;background:transparent;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .x:hover{background:#D6E4F5}
+.sugg[hidden]{display:none}
 .sugg{position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:10;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px;display:flex;flex-direction:column;box-shadow:0 8px 24px rgba(0,32,91,.12)}
 .sugg button{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 10px;border:0;border-radius:6px;background:#fff;text-align:left;cursor:pointer}
 .sugg button:hover,.sugg button:focus{background:#EEF4FB}
@@ -217,4 +218,14 @@ button,input,select,textarea{font:inherit;color:inherit}
   .suivi,.send{grid-template-columns:minmax(0,1fr)}
 }
 @media (prefers-reduced-motion:reduce){.spinner{animation:none}}
+</style>
+<style>
+.og-set{border:0;margin:0;padding:0;min-width:0}
+.og-set legend{padding:0;margin-bottom:5px;font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.og-list{display:flex;flex-wrap:wrap;gap:6px}
+.og-chk{min-height:44px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid #B9C5D8;border-radius:8px;background:#fff;cursor:pointer;font-weight:600}
+.og-chk input{width:17px;height:17px;accent-color:var(--navy)}
+.og-chk:has(input:checked){background:#EEF4FB;border-color:var(--navy);color:var(--navy)}
+.send-scope{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid var(--blue-line);border-radius:8px;background:#F4F8FD}
+.send-scope-info{display:flex;flex-direction:column;gap:2px}
 </style>

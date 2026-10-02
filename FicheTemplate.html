@@ -46,6 +46,7 @@
     Taux de clôture <b style="color:#FFFFFF"><?= m.kpi.rate ?> %</b>
   </td>
 </tr></table>
+<? if (m.filterLabel) { ?><p style="margin:6px 0 0;font-size:8.5pt;color:#0B4A85"><b>Périmètre filtré</b> · <?= m.filterLabel ?></p><? } ?>
 
 <table class="kpi" style="margin-top:10px"><tr>
   <td><div class="eyebrow">Dossiers ouverts</div><div class="n"><?= m.kpi.open ?></div>
@@ -72,6 +73,7 @@
 <? } ?>
 
 <h2>Détail par cas</h2>
+<? if (m.detailNote) { ?><p class="mut" style="margin:-2px 0 6px;font-size:8.5pt"><?= m.detailNote ?></p><? } ?>
 <? if (!m.dossiers.length) { ?>
 <p class="mut">Aucun cas ouvert pour ce programme dans l'extraction de la semaine.</p>
 <? } else { ?>

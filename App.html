@@ -6,7 +6,7 @@
   var S = {
     me: '', refresh: null, programmes: [], recent: [],
     view: 'home', prog: null, meeting: today(), tab: 'dossier', nonVus: false, limit: 60,
-    og: '', leader: '', supplier: '', withProp: false,
+    ogs: [], leader: '', supplier: '', withProp: false,
     send: null
   };
   var app = document.getElementById('app');
@@ -150,10 +150,25 @@
   }
 
   /* ---------- Filtres et indicateurs recalculés ---------- */
-  function filtersActive() { return !!(S.og || S.leader || S.supplier); }
+  function filtersActive() { return !!(S.ogs.length || S.leader || S.supplier); }
+
+  /* Périmètre transmis au serveur pour la fiche, le PDF, l'envoi et l'export. */
+  function scope(extra) {
+    var f = { ogs: S.ogs.slice(), leader: S.leader, supplier: S.supplier };
+    for (var k in (extra || {})) f[k] = extra[k];
+    return f;
+  }
+
+  function scopeLabel() {
+    var parts = [];
+    if (S.ogs.length) parts.push('OG : ' + S.ogs.join(', '));
+    if (S.leader) parts.push('Case leader : ' + S.leader);
+    if (S.supplier) parts.push('Fournisseur : ' + S.supplier);
+    return parts.join(' · ');
+  }
 
   function matchFilters(d) {
-    return (!S.og || d.og === S.og) && (!S.leader || d.leader === S.leader) && (!S.supplier || d.supplier === S.supplier);
+    return (!S.ogs.length || S.ogs.indexOf(d.og) !== -1) && (!S.leader || d.leader === S.leader) && (!S.supplier || d.supplier === S.supplier);
   }
   function filteredDossiers(p) { return p.dossiers.filter(matchFilters); }
   function filteredClosed(p) { return (p.closed || []).filter(matchFilters); }
@@ -194,7 +209,9 @@
   function filterBar(p, st) {
     var f = p.filters || {};
     return '<section class="card filters-bar" aria-label="Filtres du programme">' +
-      '<div class="fld"><label for="f-og">OG</label><select id="f-og">' + options(f.ogs, S.og, 'Tous') + '</select></div>' +
+      ((f.ogs || []).length ? '<fieldset class="og-set"><legend>OG</legend><div class="og-list">' + f.ogs.map(function (v) {
+        return '<label class="og-chk"><input type="checkbox" name="f-og" value="' + esc(v) + '"' + (S.ogs.indexOf(v) !== -1 ? ' checked' : '') + '>' + esc(v) + '</label>';
+      }).join('') + '</div></fieldset>' : '') +
       '<div class="fld"><label for="f-leader">Case leader</label><select id="f-leader">' + options(f.leaders, S.leader, 'Tous') + '</select></div>' +
       '<div class="fld"><label for="f-supplier">Fournisseur</label><select id="f-supplier">' + options(f.suppliers, S.supplier, 'Tous') + '</select></div>' +
       '<div id="filter-note" class="filter-note">' + filterNote(p, st) + '</div></section>';
@@ -458,6 +475,10 @@
       recipField('cc', 'Cc', 'Ajouter une personne en copie…') +
       '<div class="fld"><label for="subj">Objet</label><input id="subj" type="text" maxlength="250" value="' + esc(s.subject) + '"></div>' +
       '<div class="fld"><label for="body">Message</label><textarea id="body" rows="8" maxlength="10000">' + esc(s.bodyTouched ? s.body : defaultBody()) + '</textarea></div>' +
+      '<div class="send-scope"><div id="send-scope" class="send-scope-info">' + sendScopeInner() + '</div>' +
+      '<label class="chk"><input type="checkbox" id="opt-seen"' + (s.seenOnly ? ' checked' : '') + '> Uniquement les cas vus en réunion du ' + fmt(S.meeting) +
+      ' <span class="mut sm">(' + sendCounts().seen + ')</span></label>' +
+      '<span class="mut sm">Décochée : la fiche reprend tous les cas filtrés.</span></div>' +
       '<div class="attach"><span class="pdf">PDF</span><span style="display:flex;flex-direction:column"><span class="mono strong" style="font-size:14px">Revue_' + esc(p.name) + '_' + esc(S.meeting) + '.pdf</span><span class="mut sm">Généré à l’envoi · liens TOM cliquables</span></span></div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:4px 24px"><label class="chk"><input type="checkbox" id="opt-drive"' + (s.saveDrive ? ' checked' : '') + '> Copie dans le cas Drive des revues</label>' +
       '<label class="chk"><input type="checkbox" id="opt-log"' + (s.log ? ' checked' : '') + '> Consigner l’envoi dans le suivi</label></div>' +
@@ -510,10 +531,12 @@
   function defaultBody() {
     var p = S.prog, s = S.send, first = '';
     if (s && s.to[0] && s.to[0].name && s.to[0].name.indexOf('@') === -1) first = ' ' + s.to[0].name.split(' ')[0];
-    var k = p.kpi;
+    var c = sendCounts(), label = scopeLabel();
+    var what = (s && s.seenOnly ? 'les ' + c.listed + ' cas vus en réunion' : 'les ' + c.listed + ' cas encore ouverts') +
+      (label ? ' (' + label + ')' : '');
     return 'Bonjour' + first + ',\n\n' +
       'Vous trouverez ci-joint le compte rendu de la revue du ' + fmt(S.meeting) + ' pour le programme ' + p.name + ' : ' +
-      'les ' + k.open + ' cas encore ouverts, les ' + k.impls + ' implémentations à traiter et les décisions prises en séance.\n\n' +
+      what + ', les ' + c.impls + ' implémentations à traiter et les décisions prises en séance.\n\n' +
       'Chaque cas s’ouvre directement dans TOM depuis le PDF.\n\nBien cordialement,';
   }
 
@@ -544,7 +567,7 @@
     busy(true, 'Calcul de la vue ' + name + '…');
     return run('apiProgramme', name, meeting || S.meeting).then(function (m) {
       S.prog = m; S.meeting = m.meeting; S.view = 'prog'; S.limit = 60;
-      if (!keepTab) { S.tab = 'dossier'; S.nonVus = false; S.og = ''; S.leader = ''; S.supplier = ''; S.withProp = false; }
+      if (!keepTab) { S.tab = 'dossier'; S.nonVus = false; S.ogs = []; S.leader = ''; S.supplier = ''; S.withProp = false; }
       render(); window.scrollTo(0, 0);
     }).catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
   }
@@ -571,11 +594,43 @@
       to: (p.lastTo || []).filter(function (x) { return isMail(x.email); }).map(function (x) { return { name: x.name || '', email: x.email }; }),
       cc: [], subject: '[Revue programme] ' + p.name + ' · compte rendu du ' + fmt(S.meeting),
       body: '', bodyTouched: false, saveDrive: true, log: true,
-      sugg: { to: [], cc: [] }, html: null, result: null
+      sugg: { to: [], cc: [] }, html: null, result: null,
+      seenOnly: stats(p).seen > 0
     };
     S.view = 'send'; render(); window.scrollTo(0, 0);
-    run('apiFicheHtml', p.name, S.meeting).then(function (html) { S.send.html = html; setPreview(html); })
-      .catch(function (e) { toast('Aperçu indisponible : ' + errMsg(e), 'err'); });
+    loadPreview();
+  }
+
+  function loadPreview() {
+    var s = S.send, f = document.getElementById('preview');
+    if (f) f.srcdoc = '<p style="font:14px Arial;color:#4A5B78;padding:24px">Mise à jour de l’aperçu…</p>';
+    var req = s.previewReq = (s.previewReq || 0) + 1;
+    run('apiFicheHtml', S.prog.name, S.meeting, scope({ seenOnly: s.seenOnly })).then(function (html) {
+      if (req !== s.previewReq) return;
+      s.html = html; setPreview(html);
+    }).catch(function (e) { toast('Aperçu indisponible : ' + errMsg(e), 'err'); });
+  }
+
+  /* Coche « cas vus uniquement » : met à jour le résumé, le message par défaut et l'aperçu. */
+  function refreshSendScope() {
+    var el = document.getElementById('send-scope');
+    if (el) el.innerHTML = sendScopeInner();
+    if (!S.send.bodyTouched) { var b = document.getElementById('body'); if (b) b.value = defaultBody(); }
+    loadPreview();
+  }
+
+  function sendCounts() {
+    var p = S.prog, ds = filteredDossiers(p);
+    var seen = ds.filter(function (d) { return p.current[d.id] && p.current[d.id].vu; });
+    var list = S.send && S.send.seenOnly ? seen : ds;
+    return { scope: ds.length, seen: seen.length, listed: list.length, impls: aggImpls(list).length };
+  }
+
+  function sendScopeInner() {
+    var c = sendCounts(), label = scopeLabel();
+    return '<span class="xs-lbl">Contenu de la fiche</span>' +
+      '<span class="sm"><b>' + c.listed + '</b> cas · ' + c.impls + ' implémentation' + (c.impls > 1 ? 's' : '') +
+      (label ? ' · <span class="mut">' + esc(label) + '</span>' : ' · <span class="mut">tout le programme</span>') + '</span>';
   }
 
   function taken(email) {
@@ -617,7 +672,8 @@
       subject: document.getElementById('subj').value,
       body: document.getElementById('body').value,
       saveDrive: document.getElementById('opt-drive').checked,
-      log: document.getElementById('opt-log').checked
+      log: document.getElementById('opt-log').checked,
+      filters: scope({ seenOnly: s.seenOnly })
     };
     busy(true, 'Génération du PDF et envoi…');
     run('apiSendFiche', payload).then(function (r) {
@@ -640,14 +696,15 @@
     }
     else if (act === 'more') { S.limit += 60; renderAnalysis(); }
     else if (act === 'clear-filters') {
-      S.og = ''; S.leader = ''; S.supplier = ''; S.limit = 60;
-      ['f-og', 'f-leader', 'f-supplier'].forEach(function (id) { var e = document.getElementById(id); if (e) e.value = ''; });
+      S.ogs = []; S.leader = ''; S.supplier = ''; S.limit = 60;
+      ['f-leader', 'f-supplier'].forEach(function (id) { var e = document.getElementById(id); if (e) e.value = ''; });
+      Array.prototype.forEach.call(document.querySelectorAll('input[name="f-og"]'), function (c) { c.checked = false; });
       refreshFiltered();
     }
     else if (act === 'meeting') loadProgramme(S.prog.name, el.getAttribute('data-date'), true);
     else if (act === 'export') {
       busy(true, 'Création de l’export…');
-      run('apiExportSuivi', S.prog.name, S.meeting)
+      run('apiExportSuivi', S.prog.name, S.meeting, scope())
         .then(function (r) { toast('Export créé dans le cas Drive des revues', '', { url: r.url, label: 'Ouvrir' }); })
         .catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
     }
@@ -655,7 +712,7 @@
     else if (act === 'back-prog') loadProgramme(S.prog.name, S.meeting, true);
     else if (act === 'pdf-drive') {
       busy(true, 'Génération du PDF…');
-      run('apiPdfToDrive', S.prog.name, S.meeting)
+      run('apiPdfToDrive', S.prog.name, S.meeting, scope({ seenOnly: S.send.seenOnly }))
         .then(function (r) { toast('PDF enregistré dans Drive', '', { url: r.url, label: 'Ouvrir' }); })
         .catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
     }
@@ -686,7 +743,11 @@
     else if (t.id === 'meeting') { if (/^\d{4}-\d{2}-\d{2}$/.test(t.value)) loadProgramme(S.prog.name, t.value, true); }
     else if (t.id === 'nonvus') { S.nonVus = t.checked; S.limit = 60; renderAnalysis(); }
     else if (t.id === 'withprop') { S.withProp = t.checked; S.limit = 60; renderAnalysis(); }
-    else if (t.id === 'f-og') { S.og = t.value; S.limit = 60; refreshFiltered(); }
+    else if (t.name === 'f-og') {
+      S.ogs = Array.prototype.map.call(document.querySelectorAll('input[name="f-og"]:checked'), function (c) { return c.value; });
+      S.limit = 60; refreshFiltered();
+    }
+    else if (t.id === 'opt-seen') { S.send.seenOnly = t.checked; refreshSendScope(); }
     else if (t.id === 'f-leader') { S.leader = t.value; S.limit = 60; refreshFiltered(); }
     else if (t.id === 'f-supplier') { S.supplier = t.value; S.limit = 60; refreshFiltered(); }
     else if (t.id === 'opt-drive') S.send.saveDrive = t.checked;
