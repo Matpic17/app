@@ -23,6 +23,9 @@
   .impl { background: #00205B; color: #FFFFFF; font-weight: bold; padding: 1px 5px; font-family: 'Courier New', Courier, monospace; }
   .new { background: #FDEBDD; color: #9A3412; font-weight: bold; font-size: 7.5pt; padding: 0 5px; }
   .late { color: #9A3412; font-weight: bold; }
+  .grp { border: 1px solid #D9E0EC; padding: 4px 6px; margin-bottom: 4px; }
+  .grp-empty { background: #FDEBDD; border-color: #F5C9A8; }
+  .grp-name { font-weight: bold; color: #00205B; font-size: 8.5pt; border-bottom: 1px solid #E3EAF4; padding-bottom: 2px; }
   .prop { margin-top: 3px; padding: 3px 6px; border: 1px dashed #7FA6D6; background: #F4F8FD; color: #0B4A85; font-size: 8.5pt; }
   a { color: #00205B; font-weight: bold; }
   .notes td { border: 1px solid #D9E0EC; padding: 10px 12px; }
@@ -73,31 +76,38 @@
 <p class="mut">Aucun cas ouvert pour ce programme dans l'extraction de la semaine.</p>
 <? } else { ?>
 <table class="grid">
-  <tr><th style="width:22%">Dossier</th><th style="width:45%">Solution · statut → implémentations</th><th style="width:6%">Vu</th><th style="width:27%">Décision · échéance</th></tr>
+  <tr><th style="width:21%">Cas</th><th style="width:47%">Groupes · solutions · implémentations</th><th style="width:6%">Vu</th><th style="width:26%">Décision · échéance</th></tr>
   <? m.dossiers.forEach(function (d) { var c = m.current[d.id] || {}; ?>
   <tr>
     <td>
       <a href="<?= d.url ?>" class="mono"><?= d.id ?></a><? if (d.isNew) { ?> <span class="new">NOUVEAU</span><? } ?><br>
       <span style="font-size:8pt"><b><?= d.og ?></b><?= d.status ? ' · ' + d.status : '' ?></span><br>
       <? if (d.leader) { ?><span class="mut" style="font-size:8pt">Case leader : <?= d.leader ?></span><br><? } ?>
-      <? if (d.supplier) { ?><span class="mut" style="font-size:8pt">Fournisseur : <?= d.supplier ?></span><br><? } ?>
-      <span class="mut" style="font-size:8pt"><?= d.groups.join(', ') ?></span>
+      <? if (d.supplier) { ?><span class="mut" style="font-size:8pt">Fournisseur : <?= d.supplier ?></span><? } ?>
     </td>
     <td>
-      <? if (d.noSolution) { ?><div><span class="st">Aucune solution appliquée</span></div><? } ?>
-      <? d.sols.forEach(function (s) { ?>
-      <div style="margin-bottom:4px">
-        <b><?= s.name || s.type ?></b><? if (s.name && s.type) { ?><span class="mut"> · <?= s.type ?></span><? } ?>
-        <span class="st"><?= s.status ?></span>
-        <span class="mut" style="font-size:8pt">(<?= s.origin === 'Groupe' ? 'groupe ' + s.group : 'programme' ?>)</span>
-        <? if (s.impls.length) { ?><br>→ <? s.impls.forEach(function (im) { ?><span class="impl"><?= im.type || 'Implémentation' ?></span><? if (im.resp) { ?><span class="mut" style="font-size:8pt"> réf. <?= im.resp ?></span><? } ?> <? }); ?><? } ?>
+      <? d.groups.forEach(function (g) { ?>
+      <div class="grp<?= g.noSolution ? ' grp-empty' : '' ?>">
+        <div class="grp-name"><?= g.name ?></div>
+        <? if (g.noSolution) { ?><div class="late" style="font-size:8.5pt">Ce groupe n'a pas de solution appliquée</div><? } ?>
+        <? g.sols.forEach(function (s) { ?>
+        <div style="margin-top:3px">
+          <b><?= s.name || s.type ?></b><? if (s.name && s.type) { ?><span class="mut"> · <?= s.type ?></span><? } ?>
+          <span class="st"><?= s.status ?></span>
+          <? if (s.origin !== 'Groupe') { ?><span class="mut" style="font-size:8pt">(propre au programme)</span><? } ?>
+          <? if (s.impls.length) { ?><br>→ <? s.impls.forEach(function (im) { ?><span class="impl"><?= im.type || 'Implémentation' ?></span><? if (im.resp) { ?><span class="mut" style="font-size:8pt"> réf. <?= im.resp ?></span><? } ?> <? }); ?><? } ?>
+        </div>
+        <? }); ?>
+        <? if (g.proposals.length) { ?>
+        <div class="prop">Proposée (info) :
+          <? g.proposals.forEach(function (s, i) { ?><?= i ? ' ; ' : '' ?><b><?= s.name || s.type ?></b><? s.impls.forEach(function (im) { ?> → <?= im.type || 'implémentation' ?><? }); ?><? }); ?>
+        </div>
+        <? } ?>
+        <? if (g.done.length) { ?>
+        <div class="mut" style="font-size:8pt;margin-top:3px">Soldées : <?= g.done.map(function (s) { return (s.name || s.type) + ' (' + s.status + ')'; }).join(' ; ') ?></div>
+        <? } ?>
       </div>
       <? }); ?>
-      <? if (d.proposals.length) { ?>
-      <div class="prop">Proposée (info) :
-        <? d.proposals.forEach(function (s, i) { ?><?= i ? ' ; ' : '' ?><b><?= s.name || s.type ?></b><? s.impls.forEach(function (im) { ?> → <?= im.type || 'implémentation' ?><? }); ?><? }); ?>
-      </div>
-      <? } ?>
     </td>
     <td style="font-weight:bold;color:<?= c.vu ? '#0B4A85' : '#8592A8' ?>"><?= c.vu ? 'Oui' : '—' ?></td>
     <td>
@@ -109,24 +119,25 @@
 </table>
 <? } ?>
 
-<? var withProp = m.dossiers.filter(function (d) { return d.proposals.length; }); if (withProp.length) { ?>
+<? var withProp = m.dossiers.filter(function (d) { return d.nProposals; }); if (withProp.length) { ?>
 <h2>Propositions en attente : une décision est-elle à prendre ?</h2>
 <table class="grid">
-  <tr><th style="width:18%">Dossier</th><th style="width:34%">Solution appliquée (fait foi)</th><th style="width:48%">Proposition en attente</th></tr>
-  <? withProp.forEach(function (d) { ?>
+  <tr><th style="width:16%">Cas</th><th style="width:18%">Groupe</th><th style="width:28%">Solution appliquée (fait foi)</th><th style="width:38%">Proposition en attente</th></tr>
+  <? withProp.forEach(function (d) { d.groups.filter(function (g) { return g.proposals.length; }).forEach(function (g) { ?>
   <tr>
     <td><a href="<?= d.url ?>" class="mono"><?= d.id ?></a></td>
-    <td><?= d.sols.length ? d.sols.map(function (s) { return (s.name || s.type) + ' (' + s.status + ')'; }).join(' ; ') : 'Aucune' ?></td>
-    <td><? d.proposals.forEach(function (s, i) { ?><?= i ? ' ; ' : '' ?><b><?= s.name || s.type ?></b><?= s.name && s.type ? ' · ' + s.type : '' ?><? s.impls.forEach(function (im) { ?> → <?= im.type || 'implémentation' ?><?= im.resp ? ' (réf. ' + im.resp + ')' : '' ?><? }); ?><? }); ?></td>
+    <td><?= g.name ?></td>
+    <td><?= g.sols.concat(g.done).length ? g.sols.concat(g.done).map(function (s) { return (s.name || s.type) + ' (' + s.status + ')'; }).join(' ; ') : 'Aucune' ?></td>
+    <td><? g.proposals.forEach(function (s, i) { ?><?= i ? ' ; ' : '' ?><b><?= s.name || s.type ?></b><?= s.name && s.type ? ' · ' + s.type : '' ?><? s.impls.forEach(function (im) { ?> → <?= im.type || 'implémentation' ?><?= im.resp ? ' (réf. ' + im.resp + ')' : '' ?><? }); ?><? }); ?></td>
   </tr>
-  <? }); ?>
+  <? }); }); ?>
 </table>
 <? } ?>
 
 <? var late = m.decisions.filter(function (x) { return x.late; }); if (late.length) { ?>
 <h2>Engagements en retard</h2>
 <table class="grid">
-  <tr><th style="width:18%">Dossier</th><th>Décision</th><th style="width:16%">Échéance</th><th style="width:16%">Prise le</th></tr>
+  <tr><th style="width:18%">Cas</th><th>Décision</th><th style="width:16%">Échéance</th><th style="width:16%">Prise le</th></tr>
   <? late.forEach(function (x) { ?>
   <tr><td class="mono"><?= x.dossier ?></td><td><?= x.decision ?></td><td class="late"><?= fmt(x.due) ?></td><td class="mut"><?= fmt(x.meeting) ?></td></tr>
   <? }); ?>

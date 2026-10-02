@@ -169,7 +169,15 @@ function compute_(P, S, opts) {
     const bloq = new Set(), her = new Set(), impls = new Set();
     Array.from(dm.values()).sort(function (a, b) { return coll(a.dossier, b.dossier); }).forEach(function (e) {
       total++;
-      if (!e.open) return;
+      const first = e.inst[0];
+      const baseFor = function (ins) {
+        return [name, e.dossier, e.urlId, e.og, e.status, e.leader, e.supplier, ins.groupe, ins.groupName, ins.branche];
+      };
+      if (!e.open) {
+        // Une ligne par cas soldé : sert au taux de clôture filtré (OG, case leader, fournisseur).
+        data.push(baseFor(first).concat(['Dossier soldé', '', '', '', '', '', '', '', '', ''], ['', '', '', opts.week]));
+        return;
+      }
       nOpen++;
       const key = name + SEP + e.dossier;
       openKeys.push([key]);
@@ -183,33 +191,31 @@ function compute_(P, S, opts) {
       let solDone = 0;
       all.forEach(function (s) { if (s.closed) solDone++; });
       const tail = [isNew ? 'Oui' : '', String(solTotal), String(solDone), opts.week];
-      const propSeen = new Set();
+      const done = new Set();
+      let hasProp = false;
       e.inst.forEach(function (ins) {
-        if (!ins.open) return;
-        const base = [name, e.dossier, e.urlId, e.og, e.status, e.leader, e.supplier, ins.groupe, ins.groupName, ins.branche];
-        const push = function (nature, s) {
-          const list = s.impls.size ? Array.from(s.impls.values()) : [null];
+        const base = baseFor(ins);
+        const push = function (nature, s, withImpls) {
+          const k = nature + SEP + solKey_(s, ins);
+          if (done.has(k)) return;
+          done.add(k);
+          const list = withImpls && s.impls.size ? Array.from(s.impls.values()) : [null];
           list.forEach(function (im) { data.push(base.concat(solCols(nature, s, im), tail)); });
         };
         if (!ins.sols.length) {
           data.push(base.concat(['Aucune solution', '', '', '', '', '', '', '', '', ''], tail));
         }
         ins.sols.forEach(function (s) {
-          if (s.closed) return;
+          if (s.closed) { push('Soldée', s, false); return; }
           const sk = e.dossier + SEP + solKey_(s, ins);
           bloq.add(sk);
           if (s.origin === 'Groupe') her.add(sk);
           s.impls.forEach(function (im) { impls.add(im.id); });
-          push('Bloquante', s);
+          push('Bloquante', s, true);
         });
-        ins.props.forEach(function (s) {
-          const pk = solKey_(s, ins);
-          if (propSeen.has(pk)) return;
-          propSeen.add(pk);
-          push('Proposition', s);
-        });
+        ins.props.forEach(function (s) { hasProp = true; push('Proposition', s, true); });
       });
-      if (propSeen.size) withProp++;
+      if (hasProp) withProp++;
     });
     const len = data.length - start;
     summary.push([name, total, nOpen, nNew, bloq.size, her.size, impls.size,

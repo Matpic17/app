@@ -74,40 +74,54 @@ function buildProgrammeModel_(name, meeting) {
     ? sheet_(CFG.SHEETS.data).getRange(start, 1, len, DATA_HEADER.length).getDisplayValues()
     : [];
 
-  const dmap = new Map();
+  const dmap = new Map(), closed = [];
   lines.forEach(function (l) {
     const dossier = l[D.Dossier], groupe = l[D.Groupe], branche = l[D.Branche], origin = l[D.Origine];
     const nature = l[D.Nature], solId = l[D.Solution], implId = l[D.Implementation];
+    if (nature === 'Dossier soldé') {
+      closed.push({ id: dossier, og: l[D.OG], leader: l[D.CaseLeader], supplier: l[D.Fournisseur] });
+      return;
+    }
     let d = dmap.get(dossier);
     if (!d) {
       d = { id: dossier, url: toolUrl_(l[D.IdOutil] || dossier), isNew: l[D.Nouveau] === 'Oui',
         og: l[D.OG], status: l[D.StatutDossier], leader: l[D.CaseLeader], supplier: l[D.Fournisseur],
-        groups: [], sols: [], proposals: [], noSolution: false,
-        solTotal: int(l[D.SolutionsTotal]), solDone: int(l[D.SolutionsSoldees]), _keys: {} };
+        groups: [], solTotal: int(l[D.SolutionsTotal]), solDone: int(l[D.SolutionsSoldees]), _g: {} };
       dmap.set(dossier, d);
     }
-    const gName = l[D.NomGroupe] || groupe;
-    if (d.groups.indexOf(gName) === -1) d.groups.push(gName);
-    if (nature === 'Aucune solution') { d.noSolution = true; return; }
-    const sk = nature + SEP + (origin === 'Groupe' ? 'G' + groupe : 'I' + groupe + SEP + branche) + SEP + solId;
-    let s = d._keys[sk];
+    let g = d._g[groupe];
+    if (!g) {
+      g = { name: l[D.NomGroupe] || groupe, sols: [], done: [], proposals: [], noSolution: false, _keys: {} };
+      d._g[groupe] = g;
+      d.groups.push(g);
+    }
+    if (nature === 'Aucune solution') { g.noSolution = true; return; }
+    const sk = nature + SEP + (origin === 'Groupe' ? 'G' : 'I' + branche) + SEP + solId;
+    let s = g._keys[sk];
     if (!s) {
-      s = { key: solId, name: l[D.NomSolution], type: l[D.TypeSolution], status: l[D.StatutSolution],
-        origin: origin, group: gName, impls: [] };
-      d._keys[sk] = s;
-      (nature === 'Proposition' ? d.proposals : d.sols).push(s);
+      s = { key: solId, name: l[D.NomSolution], type: l[D.TypeSolution], status: l[D.StatutSolution], origin: origin, impls: [] };
+      g._keys[sk] = s;
+      (nature === 'Proposition' ? g.proposals : nature === 'Soldée' ? g.done : g.sols).push(s);
     }
     if (implId && !s.impls.some(function (x) { return x.key === implId; })) {
       s.impls.push({ key: implId, type: l[D.TypeImplementation], status: l[D.StatutImplementation], resp: l[D.RefResponsable] });
     }
   });
 
-  const dossiers = Array.from(dmap.values()).map(function (d) { delete d._keys; return d; })
-    .sort(function (a, b) { return (b.sols.length - a.sols.length) || a.id.localeCompare(b.id, 'fr', { numeric: true }); });
+  const dossiers = Array.from(dmap.values()).map(function (d) {
+    delete d._g;
+    d.groups.forEach(function (g) { delete g._keys; });
+    // Groupes qui bloquent d'abord.
+    d.groups.sort(function (a, b) { return (b.sols.length + (b.noSolution ? 1 : 0)) - (a.sols.length + (a.noSolution ? 1 : 0)); });
+    d.nBlocking = d.groups.reduce(function (n, g) { return n + g.sols.length; }, 0);
+    d.nProposals = d.groups.reduce(function (n, g) { return n + g.proposals.length; }, 0);
+    d.noSolution = d.groups.some(function (g) { return g.noSolution; });
+    return d;
+  }).sort(function (a, b) { return (b.nBlocking - a.nBlocking) || a.id.localeCompare(b.id, 'fr', { numeric: true }); });
   const impls = aggregateImpls_(dossiers);
   const uniq = function (k) {
-    return dossiers.map(function (d) { return d[k]; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; })
-      .sort(function (a, b) { return a.localeCompare(b, 'fr'); });
+    return dossiers.concat(closed).map(function (d) { return d[k]; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; })
+      .sort(function (a, b) { return a.localeCompare(b, 'fr', { numeric: true }); });
   };
 
   // Suivi de réunion
@@ -154,7 +168,8 @@ function buildProgrammeModel_(name, meeting) {
       delta: prevOpen == null ? null : int(row[2]) - prevOpen
     },
     history: history, dossiers: dossiers, impls: impls,
-    filters: { leaders: uniq('leader'), suppliers: uniq('supplier') },
+    closed: closed,
+    filters: { ogs: uniq('og'), leaders: uniq('leader'), suppliers: uniq('supplier') },
     current: current, meetings: meetings, decisions: decisions, lastTo: lastTo,
     me: Session.getActiveUser().getEmail()
   };
@@ -164,7 +179,7 @@ function buildProgrammeModel_(name, meeting) {
 function aggregateImpls_(dossiers) {
   const map = new Map();
   dossiers.forEach(function (d) {
-    d.sols.forEach(function (s) {
+    blockingSols_(d).forEach(function (s) {
       s.impls.forEach(function (im) {
         let a = map.get(im.key);
         if (!a) { a = { key: im.key, type: im.type, status: im.status, resp: im.resp, sols: [], dossiers: [] }; map.set(im.key, a); }
@@ -177,6 +192,14 @@ function aggregateImpls_(dossiers) {
   return Array.from(map.values()).sort(function (a, b) {
     return (b.dossiers.length - a.dossiers.length) || String(a.type).localeCompare(String(b.type), 'fr');
   });
+}
+
+function blockingSols_(d) {
+  return d.groups.reduce(function (all, g) { return all.concat(g.sols); }, []);
+}
+
+function proposalSols_(d) {
+  return d.groups.reduce(function (all, g) { return all.concat(g.proposals); }, []);
 }
 
 function toolUrl_(id) {
@@ -220,7 +243,7 @@ function apiSaveSuivi(p) {
 /* ---------- Annuaire ---------- */
 
 function apiSearchPeople(q) {
-  q = String(q || '').trim();t.logo
+  q = String(q || '').trim();
   if (q.length < 2) return [];
   const res = People.People.searchDirectoryPeople({
     query: q,
@@ -314,25 +337,28 @@ function apiSendFiche(p) {
 
 function apiExportSuivi(name, meeting) {
   const m = buildProgrammeModel_(String(name), meeting);
-  const header = ['Programme', 'Dossier', 'OG', 'Statut dossier', 'Case leader', 'Fournisseur', 'Groupes', 'Nouveau',
+  const header = ['Programme', 'Cas', 'OG', 'Statut', 'Case leader', 'Fournisseur', 'Nouveau', 'Groupe',
     'Nature', 'Nom solution', 'Type solution', 'Statut solution', 'Origine',
     'Type implémentation', 'Réf. responsable', 'Statut outil (info)',
     'Vu le ' + fmtDate_(m.meeting), 'Décision', 'Échéance', 'Lien outil'];
   const rows = [];
   m.dossiers.forEach(function (d) {
     const c = m.current[d.id] || {};
-    const base = [m.name, d.id, d.og, d.status, d.leader, d.supplier, d.groups.join(' | '), d.isNew ? 'Oui' : ''];
     const end = [c.vu ? 'Oui' : '', c.decision || '', c.due ? fmtDate_(c.due) : '', d.url];
-    if (d.noSolution) rows.push(base.concat(['Aucune solution appliquée', '', '', '', '', '', '', ''], end));
-    const add = function (nature, s) {
-      const list = s.impls.length ? s.impls : [null];
-      list.forEach(function (im) {
-        rows.push(base.concat([nature, s.name, s.type, s.status, s.origin,
-          im ? im.type : '', im ? im.resp : '', im ? im.status : ''], end));
-      });
-    };
-    d.sols.forEach(function (s) { add('Bloquante', s); });
-    d.proposals.forEach(function (s) { add('Proposée (info)', s); });
+    d.groups.forEach(function (g) {
+      const base = [m.name, d.id, d.og, d.status, d.leader, d.supplier, d.isNew ? 'Oui' : '', g.name];
+      if (g.noSolution) rows.push(base.concat(['Aucune solution appliquée', '', '', '', '', '', '', ''], end));
+      const add = function (nature, s) {
+        const list = s.impls.length ? s.impls : [null];
+        list.forEach(function (im) {
+          rows.push(base.concat([nature, s.name, s.type, s.status, s.origin,
+            im ? im.type : '', im ? im.resp : '', im ? im.status : ''], end));
+        });
+      };
+      g.sols.forEach(function (s) { add('Bloquante', s); });
+      g.proposals.forEach(function (s) { add('Proposée (info)', s); });
+      g.done.forEach(function (s) { add('Soldée', s); });
+    });
   });
   const ss = SpreadsheetApp.create('Suivi ' + m.name + ' – revue du ' + fmtDate_(m.meeting));
   const sh = ss.getSheets()[0].setName('Suivi');

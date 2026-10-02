@@ -6,7 +6,7 @@
   var S = {
     me: '', refresh: null, programmes: [], recent: [],
     view: 'home', prog: null, meeting: today(), tab: 'dossier', nonVus: false, limit: 60,
-    leader: '', supplier: '', withProp: false,
+    og: '', leader: '', supplier: '', withProp: false,
     send: null
   };
   var app = document.getElementById('app');
@@ -120,9 +120,9 @@
 
   /* Vue programme */
   function progView() {
-    var p = S.prog;
-    return '<div class="top">' + topbar() + progHeader(p) + '</div>' +
-      '<main class="wrap stack">' + kpis(p) + meetingBand(p) +
+    var p = S.prog, st = stats(p);
+    return '<div class="top">' + topbar() + progHeader(p, st) + '</div>' +
+      '<main class="wrap stack">' + (p.kpi.total ? filterBar(p, st) : '') + kpis(p, st) + meetingBand(p) +
       '<section class="card" style="min-width:0" id="analysis">' + analysis(p) + '</section>' +
       '<section class="legend"><span><span class="pill-st">4/6</span> statut de la solution (fait foi)</span>' +
       '<span><span class="impl" style="font-size:12px">IMPL</span> action à mener · statut outil indicatif</span>' +
@@ -130,17 +130,90 @@
       '</main>';
   }
 
-  function progHeader(p) {
+  function progHeader(p, st) {
     var opts = S.programmes.map(function (n) { return '<option value="' + esc(n) + '"' + (n === p.name ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
     return '<div class="wrap phead">' +
       '<button type="button" class="back" data-act="home">' + I.back + 'Tous les programmes</button>' +
       '<div class="phead-row"><div style="display:flex;flex-direction:column;gap:6px">' +
       '<div class="eyebrow" style="color:#AFC3E6">Programme</div><h1>' + esc(p.name) + '</h1>' +
-      '<div class="rate"><span>Taux de clôture du programme</span><span class="track"><span style="width:' + p.kpi.rate + '%"></span></span><b style="color:#fff">' + p.kpi.rate + ' %</b>' +
-      '<span class="mut" style="color:#C9D6EE">(' + (p.kpi.total - p.kpi.open) + ' cas soldés sur ' + p.kpi.total + ')</span></div></div>' +
+      '<div class="rate" id="rate">' + rateInner(st) + '</div></div>' +
       '<div class="actions"><div class="select-wrap"><label for="switch">Changer de programme</label><select id="switch">' + opts + '</select></div>' +
       '<button type="button" class="btn btn-ghost" data-act="export">' + I.down + 'Exporter le suivi</button>' +
       '<button type="button" class="btn btn-white" data-act="send">' + I.doc + 'Exporter et envoyer la fiche</button></div></div></div>';
+  }
+
+  function rateInner(st) {
+    return '<span>Taux de clôture' + (filtersActive() ? ' (filtré)' : ' du programme') + '</span>' +
+      '<span class="rate-bar" role="img" aria-label="' + st.rate + ' %"><span style="width:' + st.rate + '%"></span></span>' +
+      '<b style="color:#fff">' + st.rate + ' %</b>' +
+      '<span style="color:#C9D6EE">(' + st.closed + ' cas soldés sur ' + st.total + ')</span>';
+  }
+
+  /* ---------- Filtres et indicateurs recalculés ---------- */
+  function filtersActive() { return !!(S.og || S.leader || S.supplier); }
+
+  function matchFilters(d) {
+    return (!S.og || d.og === S.og) && (!S.leader || d.leader === S.leader) && (!S.supplier || d.supplier === S.supplier);
+  }
+  function filteredDossiers(p) { return p.dossiers.filter(matchFilters); }
+  function filteredClosed(p) { return (p.closed || []).filter(matchFilters); }
+
+  function stats(p) {
+    var ds = filteredDossiers(p), cl = filteredClosed(p);
+    var r = { open: ds.length, closed: cl.length, sols: 0, her: 0, impls: 0, nNew: 0, withProp: 0, seen: 0, dec: 0 };
+    var impl = {};
+    ds.forEach(function (d) {
+      var c = p.current[d.id];
+      if (d.isNew) r.nNew++;
+      if (d.nProposals) r.withProp++;
+      if (c && c.vu) r.seen++;
+      if (c && c.decision) r.dec++;
+      d.groups.forEach(function (g) {
+        g.sols.forEach(function (s) {
+          r.sols++;
+          if (s.origin === 'Groupe') r.her++;
+          s.impls.forEach(function (im) { impl[im.key] = 1; });
+        });
+      });
+    });
+    r.impls = Object.keys(impl).length;
+    r.total = r.open + r.closed;
+    r.rate = r.total ? Math.round(r.closed / r.total * 100) : 0;
+    r.pct = r.open ? Math.round(r.seen / r.open * 100) : 0;
+    return r;
+  }
+
+  function options(list, current, allLabel) {
+    return '<option value="">' + allLabel + '</option>' + (list || []).map(function (v) {
+      return '<option value="' + esc(v) + '"' + (v === current ? ' selected' : '') + '>' + esc(v) + '</option>';
+    }).join('');
+  }
+
+  function filterBar(p, st) {
+    var f = p.filters || {};
+    return '<section class="card filters-bar" aria-label="Filtres du programme">' +
+      '<div class="fld"><label for="f-og">OG</label><select id="f-og">' + options(f.ogs, S.og, 'Tous') + '</select></div>' +
+      '<div class="fld"><label for="f-leader">Case leader</label><select id="f-leader">' + options(f.leaders, S.leader, 'Tous') + '</select></div>' +
+      '<div class="fld"><label for="f-supplier">Fournisseur</label><select id="f-supplier">' + options(f.suppliers, S.supplier, 'Tous') + '</select></div>' +
+      '<div id="filter-note" class="filter-note">' + filterNote(p, st) + '</div></section>';
+  }
+
+  function filterNote(p, st) {
+    if (!filtersActive()) return '<span class="mut sm">Les indicateurs et la liste portent sur tout le programme.</span>';
+    return '<span class="sm"><b>' + st.open + '</b> cas ouverts sur ' + p.kpi.open + ' correspondent aux filtres : indicateurs recalculés.</span>' +
+      '<button type="button" class="btn btn-link" data-act="clear-filters">Effacer les filtres</button>';
+  }
+
+  /* Met à jour indicateurs, taux, note et liste sans toucher aux listes déroulantes. */
+  function refreshFiltered() {
+    var p = S.prog, st = stats(p);
+    var k = document.getElementById('kpis');
+    if (k) k.outerHTML = kpis(p, st);
+    var r = document.getElementById('rate');
+    if (r) r.innerHTML = rateInner(st);
+    var n = document.getElementById('filter-note');
+    if (n) n.innerHTML = filterNote(p, st);
+    renderAnalysis();
   }
 
   function spark(history) {
@@ -151,28 +224,23 @@
     return '<svg width="130" height="40" viewBox="-4 0 168 40" role="img" aria-label="Évolution sur ' + n + ' semaines"><polyline points="' + pts + '" fill="none" stroke="#0063B2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
 
-  function seenStats(p) {
-    var seen = p.dossiers.filter(function (d) { return p.current[d.id] && p.current[d.id].vu; }).length;
-    var dec = p.dossiers.filter(function (d) { return p.current[d.id] && p.current[d.id].decision; }).length;
-    return { seen: seen, dec: dec, pct: p.kpi.open ? Math.round(seen / p.kpi.open * 100) : 0 };
-  }
-
-  function kpis(p) {
-    var k = p.kpi, st = seenStats(p);
+  function kpis(p, st) {
+    var k = p.kpi, filtered = filtersActive();
     var delta = k.delta == null ? 'Première semaine suivie' :
       (k.delta < 0 ? '▼ ' + (-k.delta) : k.delta > 0 ? '▲ ' + k.delta : '= stable') + ' vs semaine précédente';
-    return '<section class="kpis" aria-label="Indicateurs du programme">' +
-      '<div class="kpi"><div class="lbl">cas ouverts</div><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px"><div class="num">' + k.open + '</div>' + spark(p.history) + '</div>' +
-      '<div class="sub"><b style="color:#0B4A85">' + esc(delta) + '</b> · <b style="color:#9A3412">' + k.nNew + ' nouveau' + (k.nNew > 1 ? 'x' : '') + '</b>' +
-      (k.withProp ? ' · ' + k.withProp + ' avec proposition en attente' : '') + '</div></div>' +
-      '<div class="kpi"><div class="lbl">Solutions</div><div class="num num-warn">' + k.sols + '</div><div class="sub">dont ' + k.solsGroup + ' héritées d’un groupe</div></div>' +
-      '<div class="kpi kpi-dark"><div class="lbl">' + I.wrench + 'Implémentations à traiter</div><div class="num">' + k.impls + '</div><div class="sub">le levier d’action du responsable</div></div>' +
-      '<div class="kpi" id="kpi-seen">' + seenKpiInner(p, st) + '</div></section>';
+    var trend = filtered ? '' : '<b style="color:#0B4A85">' + esc(delta) + '</b> · ';
+    return '<section class="kpis" id="kpis" aria-label="Indicateurs du programme">' +
+      '<div class="kpi"><div class="lbl">cas ouverts</div><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px"><div class="num">' + st.open + '</div>' + (filtered ? '' : spark(p.history)) + '</div>' +
+      '<div class="sub">' + trend + '<b style="color:#9A3412">' + st.nNew + ' nouveau' + (st.nNew > 1 ? 'x' : '') + '</b>' +
+      (st.withProp ? ' · ' + st.withProp + ' avec proposition en attente' : '') + '</div></div>' +
+      '<div class="kpi"><div class="lbl">Solutions</div><div class="num num-warn">' + st.sols + '</div><div class="sub">dont ' + st.her + ' héritées d’un groupe</div></div>' +
+      '<div class="kpi kpi-dark"><div class="lbl">' + I.wrench + 'Implémentations à traiter</div><div class="num">' + st.impls + '</div><div class="sub">le levier d’action du responsable</div></div>' +
+      '<div class="kpi" id="kpi-seen">' + seenKpiInner(st) + '</div></section>';
   }
 
-  function seenKpiInner(p, st) {
+  function seenKpiInner(st) {
     return '<div class="lbl">' + I.cal + 'Revue du ' + fmt(S.meeting) + '</div>' +
-      '<div class="num num-blue">' + st.seen + ' <small>/ ' + p.kpi.open + ' vus</small></div>' +
+      '<div class="num num-blue">' + st.seen + ' <small>/ ' + st.open + ' vus</small></div>' +
       '<div class="bar bar-lg"><span style="width:' + st.pct + '%;background:#0B4A85"></span></div>' +
       '<div class="sub">' + st.dec + ' décision' + (st.dec > 1 ? 's' : '') + ' consignée' + (st.dec > 1 ? 's' : '') + '</div>';
   }
@@ -189,13 +257,17 @@
 
   function analysis(p) {
     var t = S.tab;
-    var label = t === 'cas' ? p.kpi.open + ' cas où le programme est encore ouvert'
+    var label = t === 'dossier' ? filteredDossiers(p).length + ' cas où le programme est encore ouvert'
       : t === 'impl' ? aggImpls(filteredDossiers(p)).length + ' implémentations à lancer, triées par nombre de cas débloqués'
       : 'Ce qui a été vu, décidé et promis, réunion après réunion';
     var head = '<div class="ahead"><div><h2>Ce qui bloque au ' + esc(p.name) + '</h2><div class="mut sm">' + esc(label) + '</div></div>' +
       '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><div class="seg" role="group" aria-label="Mode d’affichage">' +
       segBtn('dossier', 'Par cas') + segBtn('impl', 'Par implémentation') + segBtn('suivi', 'Suivi des réunions') + '</div>' +
-      '</div></div>' + (t !== 'suivi' && p.kpi.open ? filterBar(p) : '');
+      (t === 'dossier' && p.kpi.open
+        ? '<label class="chk"><input type="checkbox" id="nonvus"' + (S.nonVus ? ' checked' : '') + '> Non vus uniquement</label>' +
+          '<label class="chk"><input type="checkbox" id="withprop"' + (S.withProp ? ' checked' : '') + '> Avec proposition en attente</label>'
+        : '') +
+      '</div></div>';
     if (!p.kpi.open && t !== 'suivi') {
       return head + '<div class="blank">' + I.check + '<div class="cond">Aucun cas ouvert pour ce programme</div><div class="mut">Toutes ses solutions sont soldées dans l’extraction de la semaine.</div></div>';
     }
@@ -207,42 +279,19 @@
     return '<button type="button" data-act="tab" data-tab="' + id + '" aria-pressed="' + (S.tab === id) + '">' + label + '</button>';
   }
 
-  function options(list, current, allLabel) {
-    return '<option value="">' + allLabel + '</option>' + list.map(function (v) {
-      return '<option value="' + esc(v) + '"' + (v === current ? ' selected' : '') + '>' + esc(v) + '</option>';
-    }).join('');
-  }
-
-  function filterBar(p) {
-    var f = p.filters || { leaders: [], suppliers: [] };
-    return '<div class="filters">' +
-      '<div class="fld"><label for="f-leader">Case leader</label><select id="f-leader">' + options(f.leaders, S.leader, 'Tous') + '</select></div>' +
-      '<div class="fld"><label for="f-supplier">Fournisseur</label><select id="f-supplier">' + options(f.suppliers, S.supplier, 'Tous') + '</select></div>' +
-      (S.tab === 'dossier'
-        ? '<label class="chk"><input type="checkbox" id="nonvus"' + (S.nonVus ? ' checked' : '') + '> Non vus uniquement</label>' +
-          '<label class="chk"><input type="checkbox" id="withprop"' + (S.withProp ? ' checked' : '') + '> Avec proposition en attente</label>'
-        : '') +
-      ((S.leader || S.supplier) ? '<button type="button" class="btn btn-link" data-act="clear-filters">Effacer les filtres</button>' : '') +
-      '</div>';
-  }
-
-  function filteredDossiers(p) {
-    return p.dossiers.filter(function (d) {
-      return (!S.leader || d.leader === S.leader) && (!S.supplier || d.supplier === S.supplier);
-    });
-  }
-
   /* Implémentations des solutions bloquantes, recalculées selon les filtres. */
   function aggImpls(dossiers) {
     var map = {}, order = [];
     dossiers.forEach(function (d) {
-      d.sols.forEach(function (s) {
-        s.impls.forEach(function (im) {
-          var a = map[im.key];
-          if (!a) { a = map[im.key] = { type: im.type, status: im.status, resp: im.resp, sols: [], dossiers: [] }; order.push(im.key); }
-          var label = s.name || s.type;
-          if (label && a.sols.indexOf(label) === -1) a.sols.push(label);
-          if (a.dossiers.indexOf(d.id) === -1) a.dossiers.push(d.id);
+      d.groups.forEach(function (g) {
+        g.sols.forEach(function (s) {
+          s.impls.forEach(function (im) {
+            var a = map[im.key];
+            if (!a) { a = map[im.key] = { type: im.type, status: im.status, resp: im.resp, sols: [], dossiers: [] }; order.push(im.key); }
+            var label = s.name || s.type;
+            if (label && a.sols.indexOf(label) === -1) a.sols.push(label);
+            if (a.dossiers.indexOf(d.id) === -1) a.dossiers.push(d.id);
+          });
         });
       });
     });
@@ -252,26 +301,19 @@
 
   function dossierList(p) {
     var list = filteredDossiers(p).filter(function (d) {
-      return (!S.nonVus || !(p.current[d.id] && p.current[d.id].vu)) && (!S.withProp || d.proposals.length);
+      return (!S.nonVus || !(p.current[d.id] && p.current[d.id].vu)) && (!S.withProp || d.nProposals);
     });
     var shown = list.slice(0, S.limit);
     var rows = shown.map(function (d, i) { return dossierRow(p, d, i); }).join('');
     var more = list.length > shown.length
       ? '<div class="more"><span>' + shown.length + ' cas affichés sur ' + list.length + '</span><button type="button" class="btn" data-act="more">Afficher plus</button></div>'
-      : '<div class="more"><span>' + (list.length ? list.length + ' cas' + (list.length > 1 ? 's' : '') + ' · tri par nombre de solutions' : 'Aucun cas ne correspond aux filtres') + '</span></div>';
-    return '<div class="thead cols-d"><span>cas</span><span>Groupe</span><span>Solutions et implémentations</span><span>Outil</span></div>' + rows + more;
+      : '<div class="more"><span>' + (list.length ? list.length + ' cas · tri par nombre de solutions bloquantes' : 'Aucun cas ne correspond aux filtres') + '</span></div>';
+    return '<div class="thead cols-d"><span>Cas</span><span>Groupes, solutions et implémentations</span><span>Outil</span></div>' + rows + more;
   }
 
   function dossierRow(p, d, i) {
     var c = p.current[d.id] || {};
     var pct = d.solTotal ? Math.round(d.solDone / d.solTotal * 100) : 0;
-    var sols = '';
-    if (d.noSolution) {
-      sols += '<div class="sol nosol">Aucune solution appliquée' +
-        (d.proposals.length ? ' · ' + d.proposals.length + ' proposée' + (d.proposals.length > 1 ? 's' : '') + ' en attente' : '') + '</div>';
-    }
-    sols += d.sols.map(solBlock).join('');
-    if (d.proposals.length) sols += propBlock(d);
     var info = [
       d.leader ? '<span><span class="k">Case leader</span> ' + esc(d.leader) + '</span>' : '',
       d.supplier ? '<span><span class="k">Fournisseur</span> ' + esc(d.supplier) + '</span>' : ''
@@ -283,8 +325,7 @@
       '<div class="idline">' + (d.og ? '<span class="tag">' + esc(d.og) + '</span>' : '') + (d.status ? '<span class="tag tag-soft">' + esc(d.status) + '</span>' : '') + '</div>' +
       (info ? '<div class="dinfo">' + info + '</div>' : '') +
       '<div class="mut sm">' + d.solDone + ' / ' + d.solTotal + ' solutions soldées</div><div class="bar"><span style="width:' + pct + '%"></span></div></div>' +
-      '<div style="font-size:14px;line-height:1.5">' + d.groups.map(esc).join('<br>') + '</div>' +
-      '<div class="sols">' + sols + '</div>' +
+      '<div class="groups">' + d.groups.map(groupCard).join('') + '</div>' +
       '<div><a class="btn" href="' + esc(d.url) + '" target="_blank" rel="noopener" aria-label="Ouvrir le cas ' + esc(d.id) + ' dans TOM">Ouvrir ' + I.ext + '</a></div>' +
       '</div>' +
       '<div class="track">' +
@@ -292,6 +333,32 @@
       '<div class="fld grow"><label for="dec-' + i + '">Décision du programme</label><input id="dec-' + i + '" type="text" data-f="decision" maxlength="1000" value="' + esc(c.decision || '') + '" placeholder="ex. implémentation lancée, clôture visée fin novembre"></div>' +
       '<div class="fld w180"><label for="due-' + i + '">Échéance annoncée</label><input id="due-' + i + '" type="date" data-f="due" value="' + esc(c.due || '') + '"></div>' +
       '<span class="saved" aria-live="polite"></span></div></article>';
+  }
+
+  /* Une carte par groupe : solutions bloquantes, propositions, solutions soldées. */
+  function groupCard(g) {
+    var counts = [
+      g.sols.length ? g.sols.length + ' bloquante' + (g.sols.length > 1 ? 's' : '') : '',
+      g.proposals.length ? g.proposals.length + ' proposée' + (g.proposals.length > 1 ? 's' : '') : '',
+      g.done.length ? g.done.length + ' soldée' + (g.done.length > 1 ? 's' : '') : ''
+    ].filter(Boolean).join(' · ');
+    var head = '<div class="grp-head"><span class="grp-name">' + esc(g.name) + '</span>' + (counts ? '<span class="mut sm">' + counts + '</span>' : '') + '</div>';
+    var cls = 'grp';
+    var body = '';
+    if (g.noSolution) {
+      cls += ' grp-empty';
+      body += '<div class="grp-empty-msg">Ce groupe n’a pas de solution appliquée</div>';
+    } else if (!g.sols.length) {
+      cls += ' grp-ok';
+    }
+    body += g.sols.map(solBlock).join('');
+    if (g.proposals.length) body += propBlock(g);
+    if (g.done.length) {
+      body += '<div class="done-list"><span class="xs-lbl">Soldées</span>' + g.done.map(function (s) {
+        return '<span class="done-chip">' + esc(s.name || s.type || 'Solution') + ' <b>' + esc(s.status) + '</b></span>';
+      }).join('') + '</div>';
+    }
+    return '<div class="' + cls + '">' + head + body + '</div>';
   }
 
   function implChips(impls) {
@@ -309,7 +376,7 @@
 
   function solBlock(s) {
     var origin = s.origin === 'Groupe'
-      ? '<span class="badge-grp">Héritée du groupe ' + esc(s.group) + '</span>'
+      ? '<span class="badge-grp">Du groupe</span>'
       : '<span class="badge-prg">Propre au programme</span>';
     var impls = s.impls.length
       ? '<div class="impls"><span class="xs-lbl">À implémenter</span>' + implChips(s.impls) + '</div>'
@@ -318,14 +385,14 @@
       '<span class="pill-st">' + esc(s.status || '—') + '</span>' + origin + '</div>' + impls + '</div>';
   }
 
-  function propBlock(d) {
-    var q = d.sols.length
+  function propBlock(g) {
+    var q = g.sols.length || g.done.length
       ? 'La solution appliquée fait foi. Une décision est-elle à prendre ?'
       : 'Aucune solution n’est appliquée. Une décision est-elle à prendre ?';
-    return '<div class="prop"><div class="prop-head">' + I.info + '<b>Proposition' + (d.proposals.length > 1 ? 's' : '') + ' en attente</b><span class="mut sm">pour information, hors calcul</span></div>' +
-      d.proposals.map(function (s) {
+    return '<div class="prop"><div class="prop-head">' + I.info + '<b>Proposition' + (g.proposals.length > 1 ? 's' : '') + ' en attente</b><span class="mut sm">pour information, hors calcul</span></div>' +
+      g.proposals.map(function (s) {
         return '<div class="prop-item"><div class="sol-head">' + solTitle(s) +
-          '<span class="mut sm">' + (s.origin === 'Groupe' ? 'groupe ' + esc(s.group) : 'propre au programme') + '</span></div>' +
+          '<span class="mut sm">' + (s.origin === 'Groupe' ? 'du groupe' : 'propre au programme') + '</span></div>' +
           (s.impls.length ? '<div class="impls">' + implChips(s.impls) + '</div>' : '') + '</div>';
       }).join('') +
       '<div class="prop-q">' + q + '</div></div>';
@@ -334,13 +401,13 @@
   function implList(p) {
     var impls = aggImpls(filteredDossiers(p));
     if (!impls.length) return '<div class="blank"><div class="cond">Aucune implémentation renseignée</div><div class="mut">Les solutions affichées n’ont pas encore d’implémentation.</div></div>';
-    return '<div class="thead cols-i"><span>Implémentation</span><span>Solutions · cas concernés</span><span>cas débloqués</span><span>Statut outil (info)</span></div>' +
+    return '<div class="thead cols-i"><span>Implémentation</span><span>Solutions · cas concernés</span><span>Cas débloqués</span><span>Statut outil (info)</span></div>' +
       impls.map(function (im) {
         var ids = im.dossiers.slice(0, 6).join(' · ') + (im.dossiers.length > 6 ? '  +' + (im.dossiers.length - 6) : '');
         return '<div class="irow cols-i"><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start"><span class="impl impl-lg">' + I.wrench + esc(im.type || 'Implémentation') + '</span>' +
           (im.resp ? '<span class="mut sm">réf. ' + esc(im.resp) + '</span>' : '') + '</div>' +
           '<div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:14px;font-weight:600">' + esc(im.sols.join(', ')) + '</span><span class="mono mut sm">' + esc(ids) + '</span></div>' +
-          '<div style="display:flex;align-items:baseline;gap:6px"><span class="big">' + im.dossiers.length + '</span><span class="mut sm">cas' + (im.dossiers.length > 1 ? 's' : '') + '</span></div>' +
+          '<div style="display:flex;align-items:baseline;gap:6px"><span class="big">' + im.dossiers.length + '</span><span class="mut sm">cas</span></div>' +
           '<div class="info" style="font-size:14px">' + esc(im.status || '—') + '</div></div>';
       }).join('');
   }
@@ -475,7 +542,7 @@
     busy(true, 'Calcul de la vue ' + name + '…');
     return run('apiProgramme', name, meeting || S.meeting).then(function (m) {
       S.prog = m; S.meeting = m.meeting; S.view = 'prog'; S.limit = 60;
-      if (!keepTab) { S.tab = 'dossier'; S.nonVus = false; S.leader = ''; S.supplier = ''; S.withProp = false; }
+      if (!keepTab) { S.tab = 'dossier'; S.nonVus = false; S.og = ''; S.leader = ''; S.supplier = ''; S.withProp = false; }
       render(); window.scrollTo(0, 0);
     }).catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
   }
@@ -488,7 +555,7 @@
     S.prog.current[id] = { vu: vu, decision: decision, due: due };
     article.classList.toggle('is-seen', vu);
     var k = document.getElementById('kpi-seen');
-    if (k) k.innerHTML = seenKpiInner(S.prog, seenStats(S.prog));
+    if (k) k.innerHTML = seenKpiInner(stats(S.prog));
     var flag = article.querySelector('.saved');
     flag.textContent = 'Enregistrement…';
     run('apiSaveSuivi', { programme: S.prog.name, date: S.meeting, dossier: id, vu: vu, decision: decision, due: due })
@@ -570,7 +637,11 @@
       else renderAnalysis();
     }
     else if (act === 'more') { S.limit += 60; renderAnalysis(); }
-    else if (act === 'clear-filters') { S.leader = ''; S.supplier = ''; S.limit = 60; renderAnalysis(); }
+    else if (act === 'clear-filters') {
+      S.og = ''; S.leader = ''; S.supplier = ''; S.limit = 60;
+      ['f-og', 'f-leader', 'f-supplier'].forEach(function (id) { var e = document.getElementById(id); if (e) e.value = ''; });
+      refreshFiltered();
+    }
     else if (act === 'meeting') loadProgramme(S.prog.name, el.getAttribute('data-date'), true);
     else if (act === 'export') {
       busy(true, 'Création de l’export…');
@@ -613,8 +684,9 @@
     else if (t.id === 'meeting') { if (/^\d{4}-\d{2}-\d{2}$/.test(t.value)) loadProgramme(S.prog.name, t.value, true); }
     else if (t.id === 'nonvus') { S.nonVus = t.checked; S.limit = 60; renderAnalysis(); }
     else if (t.id === 'withprop') { S.withProp = t.checked; S.limit = 60; renderAnalysis(); }
-    else if (t.id === 'f-leader') { S.leader = t.value; S.limit = 60; renderAnalysis(); }
-    else if (t.id === 'f-supplier') { S.supplier = t.value; S.limit = 60; renderAnalysis(); }
+    else if (t.id === 'f-og') { S.og = t.value; S.limit = 60; refreshFiltered(); }
+    else if (t.id === 'f-leader') { S.leader = t.value; S.limit = 60; refreshFiltered(); }
+    else if (t.id === 'f-supplier') { S.supplier = t.value; S.limit = 60; refreshFiltered(); }
     else if (t.id === 'opt-drive') S.send.saveDrive = t.checked;
     else if (t.id === 'opt-log') S.send.log = t.checked;
     else if (t.hasAttribute('data-f')) saveTrack(t.closest('[data-dossier]'));
