@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <base target="_top">
+  <base target="_blank">
   <meta charset="utf-8">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -15,6 +15,8 @@
     window.LOGO_SRC = <?!= JSON.stringify(CFG.LOGO_URL || '') ?>;
     window.APP_NAME = <?!= JSON.stringify(CFG.APP_NAME || '') ?>;
     window.TOOL_NAME = <?!= JSON.stringify(CFG.TOOL_NAME || 'TOM') ?>;
+    window.EMBED = <?!= JSON.stringify(!!embed) ?>;
+    window.APP_URL = <?!= JSON.stringify(appUrl || '') ?>;
   </script>
   <script><?!= include_('Logic'); ?></script>
   <?!= include_('App'); ?>

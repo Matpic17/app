@@ -13,9 +13,33 @@ function onOpen() {
 }
 
 function openDashboard() {
-  const html = HtmlService.createTemplateFromFile('Dashboard').evaluate()
-    .setWidth(1400).setHeight(880);
-  SpreadsheetApp.getUi().showModalDialog(html, CFG.APP_NAME);
+  const t = HtmlService.createTemplateFromFile('Dashboard');
+  t.embed = false;
+  t.appUrl = webAppUrl_();
+  SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(1400).setHeight(880), CFG.APP_NAME);
+}
+
+/**
+ * Web app entry point (link /exec, or embedded in Google Sites with /exec?embed=1).
+ * Deployed as "Execute as: user accessing the web app".
+ */
+function doGet(e) {
+  const t = HtmlService.createTemplateFromFile('Dashboard');
+  t.embed = !!(e && e.parameter && e.parameter.embed);
+  t.appUrl = webAppUrl_();
+  return t.evaluate()
+    .setTitle(CFG.APP_NAME)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function webAppUrl_() {
+  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
+
+/** Saves a file in the shared reports folder, or in the user's own Drive if they cannot write there. */
+function saveFile_(blob) {
+  try { return reviewsFolder_().createFile(blob); } catch (e) { return DriveApp.createFile(blob); }
 }
 
 function include_(file) {
@@ -304,7 +328,7 @@ function apiFicheHtml(name, f, sel) {
 }
 
 function apiPdfToDrive(name, f, sel) {
-  const file = reviewsFolder_().createFile(makePdf_(scopedModel_(name, f, sel)));
+  const file = saveFile_(makePdf_(scopedModel_(name, f, sel)));
   return { url: file.getUrl(), name: file.getName() };
 }
 
@@ -328,14 +352,17 @@ function apiSendFiche(p) {
   GmailApp.sendEmail(to.join(','), subject, body, { cc: cc.join(','), attachments: [pdf], name: CFG.APP_NAME });
 
   let link = '';
-  if (p.saveDrive) link = reviewsFolder_().createFile(pdf).getUrl();
+  if (p.saveDrive) { try { link = saveFile_(pdf).getUrl(); } catch (e) { link = ''; } }
   if (p.log) {
-    const sh = ensureSheet_(CFG.SHEETS.envois, ENVOI_HEADER);
-    sh.appendRow([
-      Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), me, m.name, m.today,
-      JSON.stringify((p.to || []).map(function (x) { return { name: String(x.name || ''), email: String(x.email) }; })),
-      cc.join(', '), subject, link
-    ]);
+    // Needs edit access to the dashboard spreadsheet: skipped silently for read-only users.
+    try {
+      const sh = ensureSheet_(CFG.SHEETS.envois, ENVOI_HEADER);
+      sh.appendRow([
+        Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), me, m.name, m.today,
+        JSON.stringify((p.to || []).map(function (x) { return { name: String(x.name || ''), email: String(x.email) }; })),
+        cc.join(', '), subject, link
+      ]);
+    } catch (e) { console.warn('E-mail not logged: ' + e); }
   }
   return { to: to, cc: cc, link: link };
 }
@@ -375,7 +402,7 @@ function apiExport(name, f, sel) {
   if (rows.length) sh.getRange(2, 1, rows.length, header.length).setValues(rows);
   sh.setFrozenRows(1);
   sh.autoResizeColumns(1, header.length);
-  DriveApp.getFileById(ss.getId()).moveTo(reviewsFolder_());
+  try { DriveApp.getFileById(ss.getId()).moveTo(reviewsFolder_()); } catch (e) { /* stays in the user's Drive */ }
   return { url: ss.getUrl(), rows: rows.length };
 }
 

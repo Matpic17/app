@@ -70,7 +70,7 @@ function installWeeklyTrigger() {
 }
 
 function removeLegacySheets_() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = ss_();
   (CFG.SHEETS.legacy || []).forEach(function (n) {
     const sh = ss.getSheetByName(n);
     if (sh) ss.deleteSheet(sh);
@@ -389,7 +389,7 @@ function writeOutputs_(res, week, isoDate) {
 }
 
 function readOpenKeys_() {
-  const sh = SpreadsheetApp.getActive().getSheetByName(CFG.SHEETS.open);
+  const sh = ss_().getSheetByName(CFG.SHEETS.open);
   if (!sh) return null;
   const n = sh.getLastRow() - 1;
   if (n < 1) return new Set();
@@ -398,8 +398,16 @@ function readOpenKeys_() {
 
 /* ---------- Sheet helpers ---------- */
 
+/** The dashboard spreadsheet: by ID when set (web app), otherwise the open spreadsheet. */
+let SS_ = null;
+function ss_() {
+  if (!SS_) SS_ = CFG.DASHBOARD_ID ? SpreadsheetApp.openById(CFG.DASHBOARD_ID) : SpreadsheetApp.getActive();
+  if (!SS_) throw new Error('Set CFG.DASHBOARD_ID in Config.gs (ID of the dashboard spreadsheet).');
+  return SS_;
+}
+
 function sheet_(name) {
-  const ss = SpreadsheetApp.getActive();
+  const ss = ss_();
   let sh = ss.getSheetByName(name);
   if (!sh) { sh = ss.insertSheet(name); sh.hideSheet(); }
   return sh;
@@ -440,7 +448,7 @@ function fit_(sh, rows, cols) {
 
 /** Always as displayed values (text) to avoid automatic conversions. */
 function readTable_(name) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(name);
+  const sh = ss_().getSheetByName(name);
   if (!sh || sh.getLastRow() < 2) return [];
   return sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getDisplayValues();
 }

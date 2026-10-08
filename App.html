@@ -81,8 +81,10 @@
 
   function topbar(title) {
     var r = S.refresh;
+    var full = window.EMBED && window.APP_URL
+      ? '<a class="btn btn-ghost" href="' + esc(window.APP_URL) + '" target="_blank" rel="noopener">' + I.ext + 'Open full page</a>' : '';
     return '<div class="wrap topbar"><div class="brand">' + logoHtml() + esc(title || S.appName) + '</div>' +
-      '<span class="meta">' + (r ? 'Extract of ' + esc(r.date) + ' · ' + esc(r.week) : 'No refresh yet') + '</span></div>';
+      '<span style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><span class="meta">' + (r ? 'Extract of ' + esc(r.date) + ' · ' + esc(r.week) : 'No refresh yet') + '</span>' + full + '</span></div>';
   }
 
   /* ---------- Rendering ---------- */

@@ -61,3 +61,14 @@ Pour tester la vue d'un case leader : `CFG.VIEW_AS_EMAIL` dans `Config.gs` (à v
 1. Remplacer tous les fichiers, et créer `Codes.gs` et `Logic.html` (fichier HTML nommé `Logic`).
 2. Reporter vos IDs dans `Config.gs` s'ils ont changé.
 3. Lancer « Refresh data now » avant d'ouvrir le tableau de bord (la structure des données change).
+
+## Application web et Google Sites
+
+1. Renseigner `DASHBOARD_ID` dans `Config.gs` (ID du fichier tableau de bord).
+2. Partager le fichier tableau de bord avec les utilisateurs : **lecteur** suffit pour consulter ;
+   **éditeur** pour que l'envoi d'e-mail soit consigné dans `_Envois` (sinon l'envoi marche, sans journal).
+3. Partager le dossier Drive des rapports en **éditeur** (sinon PDF et exports restent dans le Drive de l'utilisateur).
+4. Déployer › Nouveau déploiement › Application web : *Exécuter en tant que* « l'utilisateur qui accède »,
+   *Qui a accès* « tous les utilisateurs du domaine ». Lien direct : l'URL `/exec`.
+5. Google Sites : Insérer › Intégrer › Par URL avec `…/exec?embed=1` (le paramètre affiche le bouton « Open full page »).
+6. Nouvelle version : Gérer les déploiements › Modifier › Nouvelle version (l'URL ne change pas).

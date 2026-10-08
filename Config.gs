@@ -5,6 +5,10 @@
  */
 const CFG = {
   APP_NAME: 'Programme Monitoring',
+
+  // ID of THIS dashboard spreadsheet (the part of its URL between /d/ and /edit).
+  // Required for the web app (link / Google Sites): there is no "open spreadsheet" there.
+  DASHBOARD_ID: '',
   LOGO_URL: 'https://www.brand.airbus.com/sites/g/files/jlcbta121/files/styles/w1800/public/2021-06/logo_blue.webp?itok=0vqEp8ge',
 
   // "Programmes" extract: one row per case × group × branch.
