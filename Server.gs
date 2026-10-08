@@ -1,14 +1,14 @@
 /**
- * Pilotage des clôtures — menu, API appelée par l'interface, fiche PDF, envoi Gmail.
- * Les fonctions api* sont appelées depuis le navigateur via google.script.run.
+ * Programme monitoring — menu, API called by the dashboard, PDF report, Gmail and export.
+ * api* functions are called from the browser through google.script.run.
  */
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu(CFG.APP_NAME)
-    .addItem('Ouvrir le tableau de bord', 'openDashboard')
+    .addItem('Open dashboard', 'openDashboard')
     .addSeparator()
-    .addItem('Actualiser les données maintenant', 'refreshAllFromMenu')
-    .addItem("Programmer l'actualisation hebdomadaire", 'installWeeklyTrigger')
+    .addItem('Refresh data now', 'refreshAllFromMenu')
+    .addItem('Schedule weekly refresh', 'installWeeklyTrigger')
     .addToUi();
 }
 
@@ -22,27 +22,85 @@ function include_(file) {
   return HtmlService.createHtmlOutputFromFile(file).getContent();
 }
 
-/* ---------- Accueil ---------- */
+/** Shared logic (Logic.html), the same code as in the browser. */
+let LOGIC_S_ = null;
+function logic_() {
+  if (!LOGIC_S_) LOGIC_S_ = new Function(include_('Logic') + '\nreturn LOGIC;')();
+  return LOGIC_S_;
+}
 
-function apiHome() {
-  const progs = readTable_(CFG.SHEETS.progs).map(function (r) { return r[0]; });
-  const reviews = lastReviewByProgramme_();
-  const recent = getRecent_().filter(function (n) { return progs.indexOf(n) !== -1; });
+const int_ = function (v) { return parseInt(String(v).replace(/\s/g, ''), 10) || 0; };
+
+/* ---------- Who is viewing ---------- */
+
+/**
+ * The e-mail address starts with firstname.lastname or firstname.letters.lastname:
+ * it is matched against the case leader columns (first name AY, last name AZ).
+ * This only adapts what is displayed; it is not a security barrier
+ * (anyone with access to the spreadsheet can open the hidden tabs).
+ */
+function currentUser_() {
+  const email = String(CFG.VIEW_AS_EMAIL || Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  const leaders = readTable_(CFG.SHEETS.leaders).map(function (r) {
+    let progs = {};
+    try { progs = JSON.parse(r[3] || '{}'); } catch (e) { progs = {}; }
+    return { first: r[0], last: r[1], name: r[2], progs: progs };
+  });
+  const matches = matchLeaders_(email, leaders);
+  const progs = {};
+  matches.forEach(function (L) {
+    Object.keys(L.progs).forEach(function (p) {
+      const x = progs[p] || (progs[p] = { open: 0, total: 0 });
+      x.open += L.progs[p].open; x.total += L.progs[p].total;
+    });
+  });
   return {
-    me: Session.getActiveUser().getEmail(),
-    refresh: JSON.parse(PropertiesService.getScriptProperties().getProperty('LAST_REFRESH') || 'null'),
-    programmes: progs,
-    recent: recent.map(function (n) { return { name: n, lastReview: reviews[n] || '' }; })
+    email: email,
+    isLeader: matches.length > 0,
+    leaderNames: matches.map(function (L) { return L.name; }),
+    progs: progs,
+    leaders: leaders
   };
 }
 
-function lastReviewByProgramme_() {
-  const out = {};
-  readTable_(CFG.SHEETS.suivi).forEach(function (r) {
-    const d = dateStr_(r[1]);
-    if (!out[r[0]] || d > out[r[0]]) out[r[0]] = d;
+function matchLeaders_(email, leaders) {
+  const local = String(email || '').split('@')[0];
+  const tokens = local.split(/[._]+/).map(function (t) { return normName_(t); }).filter(Boolean);
+  if (tokens.length < 2) return [];
+  const first = tokens[0];
+  const lastCandidates = [tokens[tokens.length - 1], tokens.slice(1).join(''), tokens.slice(2).join('')]
+    .filter(Boolean);
+  return leaders.filter(function (L) {
+    return normName_(L.first) === first && lastCandidates.indexOf(normName_(L.last)) !== -1;
   });
-  return out;
+}
+
+/* ---------- Home ---------- */
+
+function apiHome() {
+  const user = currentUser_();
+  const rows = readTable_(CFG.SHEETS.progs);
+  let programmes = rows.map(function (r) { return { name: r[0], open: int_(r[2]) }; });
+  if (user.isLeader) {
+    programmes = programmes
+      .filter(function (p) { return user.progs[p.name] && user.progs[p.name].open > 0; })
+      .map(function (p) { return { name: p.name, open: user.progs[p.name].open }; });
+  }
+  const names = programmes.map(function (p) { return p.name; });
+  return {
+    appName: CFG.APP_NAME,
+    user: { email: user.email, isLeader: user.isLeader, leaderNames: user.leaderNames },
+    refresh: JSON.parse(PropertiesService.getScriptProperties().getProperty('LAST_REFRESH') || 'null'),
+    programmes: programmes,
+    leaders: user.isLeader ? [] : user.leaders
+      .map(function (L) {
+        const open = {};
+        Object.keys(L.progs).forEach(function (p) { if (L.progs[p].open > 0) open[p] = L.progs[p].open; });
+        return { name: L.name, progs: open };
+      })
+      .filter(function (L) { return Object.keys(L.progs).length; }),
+    recent: getRecent_().filter(function (n) { return names.indexOf(n) !== -1; })
+  };
 }
 
 function getRecent_() {
@@ -55,27 +113,26 @@ function pushRecent_(name) {
   PropertiesService.getUserProperties().setProperty('RECENT', JSON.stringify(list.slice(0, 6)));
 }
 
-/* ---------- Vue programme ---------- */
+/* ---------- Programme view ---------- */
 
-function apiProgramme(name, meeting) {
-  const m = buildProgrammeModel_(String(name), meeting);
+function apiProgramme(name) {
+  const m = buildProgrammeModel_(String(name), currentUser_());
   pushRecent_(m.name);
   return m;
 }
 
-function buildProgrammeModel_(name, meeting) {
-  meeting = isIsoDate_(meeting) ? meeting : today_();
+function buildProgrammeModel_(name, user) {
   const row = readTable_(CFG.SHEETS.progs).filter(function (r) { return r[0] === name; })[0];
-  if (!row) throw new Error('Programme introuvable : ' + name);
-  const int = function (v) { return parseInt(String(v).replace(/\s/g, ''), 10) || 0; };
-  const start = int(row[8]), len = int(row[9]);
-
+  if (!row) throw new Error('Programme not found: ' + name);
+  const start = int_(row[8]), len = int_(row[9]);
   const lines = len > 0
     ? sheet_(CFG.SHEETS.data).getRange(start, 1, len, DATA_HEADER.length).getDisplayValues()
     : [];
+  const mine = user && user.isLeader ? user.leaderNames : null;
 
   const dmap = new Map(), closed = [];
   lines.forEach(function (l) {
+    if (mine && mine.indexOf(l[D.CaseLeader]) === -1) return;
     const dossier = l[D.Dossier], groupe = l[D.Groupe], branche = l[D.Branche], origin = l[D.Origine];
     const nature = l[D.Nature], solId = l[D.Solution], implId = l[D.Implementation];
     if (nature === 'Dossier soldé') {
@@ -86,161 +143,111 @@ function buildProgrammeModel_(name, meeting) {
     if (!d) {
       d = { id: dossier, url: toolUrl_(l[D.IdOutil] || dossier), isNew: l[D.Nouveau] === 'Oui',
         og: l[D.OG], status: l[D.StatutDossier], leader: l[D.CaseLeader], supplier: l[D.Fournisseur],
-        groups: [], solTotal: int(l[D.SolutionsTotal]), solDone: int(l[D.SolutionsSoldees]), _g: {} };
+        groups: [], solTotal: int_(l[D.SolutionsTotal]), solDone: int_(l[D.SolutionsSoldees]), _g: {} };
       dmap.set(dossier, d);
     }
     let g = d._g[groupe];
     if (!g) {
-      g = { name: l[D.NomGroupe] || groupe, sols: [], done: [], proposals: [], noSolution: false, _keys: {} };
+      g = { name: l[D.NomGroupe] || groupe, blocking: [], proposals: [], done: [], noApplied: false, missing: false, _keys: {} };
       d._g[groupe] = g;
       d.groups.push(g);
     }
-    if (nature === 'Aucune solution') { g.noSolution = true; return; }
+    if (nature === 'Aucune solution') {
+      g.noApplied = true;
+      if (l[D.Categorie] === CAT.MISSING) g.missing = true;
+      return;
+    }
     const sk = nature + SEP + (origin === 'Groupe' ? 'G' : 'I' + branche) + SEP + solId;
     let s = g._keys[sk];
     if (!s) {
-      s = { key: solId, name: l[D.NomSolution], type: l[D.TypeSolution], status: l[D.StatutSolution], origin: origin, impls: [] };
+      s = { key: solId, name: l[D.NomSolution], type: l[D.TypeSolution], status: l[D.StatutSolution],
+        origin: origin, cat: l[D.Categorie], impls: [] };
       g._keys[sk] = s;
-      (nature === 'Proposition' ? g.proposals : nature === 'Soldée' ? g.done : g.sols).push(s);
+      (nature === 'Proposition' ? g.proposals : nature === 'Soldée' ? g.done : g.blocking).push(s);
     }
     if (implId && !s.impls.some(function (x) { return x.key === implId; })) {
-      s.impls.push({ key: implId, type: l[D.TypeImplementation], status: l[D.StatutImplementation], resp: l[D.RefResponsable] });
+      s.impls.push({ key: implId, code: l[D.CodeImplementation], label: l[D.TypeImplementation],
+        status: l[D.StatutImplementation], resp: l[D.RefResponsable],
+        open: l[D.ImplOuverte], manual: l[D.ImplManuelle] });
     }
   });
 
   const dossiers = Array.from(dmap.values()).map(function (d) {
     delete d._g;
     d.groups.forEach(function (g) { delete g._keys; });
-    // Groupes qui bloquent d'abord.
-    d.groups.sort(function (a, b) { return (b.sols.length + (b.noSolution ? 1 : 0)) - (a.sols.length + (a.noSolution ? 1 : 0)); });
-    d.nBlocking = d.groups.reduce(function (n, g) { return n + g.sols.length; }, 0);
-    d.nProposals = d.groups.reduce(function (n, g) { return n + g.proposals.length; }, 0);
-    d.noSolution = d.groups.some(function (g) { return g.noSolution; });
     return d;
-  }).sort(function (a, b) { return (b.nBlocking - a.nBlocking) || a.id.localeCompare(b.id, 'fr', { numeric: true }); });
-  const impls = aggregateImpls_(dossiers);
+  });
+  const all = dossiers.concat(closed);
   const uniq = function (k) {
-    return dossiers.concat(closed).map(function (d) { return d[k]; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; })
+    return all.map(function (d) { return d[k]; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; })
       .sort(function (a, b) { return a.localeCompare(b, 'fr', { numeric: true }); });
   };
 
-  // Suivi de réunion
-  const today = today_();
-  const suivi = readTable_(CFG.SHEETS.suivi).filter(function (r) { return r[0] === name; }).map(function (r) {
-    return { date: dateStr_(r[1]), dossier: r[2], vu: r[3] === 'Oui', decision: r[4] || '', due: dateStr_(r[5]), author: r[6] || '' };
-  });
-  const current = {};
-  suivi.filter(function (s) { return s.date === meeting; }).forEach(function (s) {
-    current[s.dossier] = { vu: s.vu, decision: s.decision, due: s.due };
-  });
-  const mmap = {};
-  suivi.forEach(function (s) {
-    const x = mmap[s.date] || (mmap[s.date] = { date: s.date, seen: 0, decisions: 0 });
-    if (s.vu) x.seen++;
-    if (s.decision) x.decisions++;
-  });
-  if (!mmap[meeting]) mmap[meeting] = { date: meeting, seen: 0, decisions: 0 };
-  const meetings = Object.keys(mmap).sort().reverse().map(function (k) { return mmap[k]; });
-  const decisions = suivi.filter(function (s) { return s.decision; })
-    .sort(function (a, b) { return b.date.localeCompare(a.date); })
-    .map(function (s) {
-      const open = dmap.has(s.dossier);
-      return { dossier: s.dossier, decision: s.decision, due: s.due, meeting: s.date, author: s.author,
-        open: open, late: open && isIsoDate_(s.due) && s.due < today };
-    });
-
-  // Historique et dernier envoi
-  const history = readTable_(CFG.SHEETS.hist).filter(function (r) { return r[2] === name; })
-    .map(function (r) { return { week: r[0], open: int(r[3]) }; })
+  // Weekly history of the programme (only meaningful without filters, and not for a case leader view).
+  const history = mine ? [] : readTable_(CFG.SHEETS.hist)
+    .filter(function (r) { return r[2] === name; })
+    .map(function (r) {
+      const has = String(r[6] || '') !== '';
+      return {
+        week: normWeek_(r[0]), open: int_(r[3]), applied: int_(r[4]),
+        decision: has ? int_(r[6]) + int_(r[7]) : null,
+        cats: has ? { NO_IMPL: int_(r[8]), IMPL_CLOSED: int_(r[9]), IN_PROGRESS: int_(r[10]), MANUAL: int_(r[11]), UNCLASSIFIED: int_(r[12]),
+          PROPOSED: int_(r[6]), MISSING: int_(r[7]) } : null
+      };
+    })
     .sort(function (a, b) { return a.week.localeCompare(b.week); }).slice(-8);
+
   const sends = readTable_(CFG.SHEETS.envois).filter(function (r) { return r[2] === name; });
   let lastTo = [];
   if (sends.length) { try { lastTo = JSON.parse(sends[sends.length - 1][4]) || []; } catch (e) { lastTo = []; } }
 
-  const seen = dossiers.filter(function (d) { return current[d.id] && current[d.id].vu; }).length;
-  const prevOpen = history.length > 1 ? history[history.length - 2].open : null;
-
   return {
-    name: name, week: row[10], extraction: row[11], meeting: meeting, today: today,
-    kpi: {
-      total: int(row[1]), open: int(row[2]), nNew: int(row[3]), sols: int(row[4]), solsGroup: int(row[5]),
-      impls: int(row[6]), rate: int(row[7]), seen: seen, withProp: int(row[12]),
-      delta: prevOpen == null ? null : int(row[2]) - prevOpen
-    },
-    history: history, dossiers: dossiers, impls: impls,
-    closed: closed,
-    filters: { ogs: uniq('og'), leaders: uniq('leader'), suppliers: uniq('supplier') },
-    current: current, meetings: meetings, decisions: decisions, lastTo: lastTo,
-    me: Session.getActiveUser().getEmail()
+    name: name, week: normWeek_(row[10]), extraction: row[11], today: today_(),
+    dossiers: dossiers, closed: closed, history: history,
+    filters: { ogs: uniq('og'), leaders: mine ? [] : uniq('leader'), suppliers: uniq('supplier') },
+    leaderView: mine ? mine.join(', ') : '',
+    lastTo: lastTo, toolName: CFG.TOOL_NAME
   };
-}
-
-/** Implémentations des solutions bloquantes, triées par nombre de dossiers débloqués. */
-function aggregateImpls_(dossiers) {
-  const map = new Map();
-  dossiers.forEach(function (d) {
-    blockingSols_(d).forEach(function (s) {
-      s.impls.forEach(function (im) {
-        let a = map.get(im.key);
-        if (!a) { a = { key: im.key, type: im.type, status: im.status, resp: im.resp, sols: [], dossiers: [] }; map.set(im.key, a); }
-        const label = s.name || s.type;
-        if (label && a.sols.indexOf(label) === -1) a.sols.push(label);
-        if (a.dossiers.indexOf(d.id) === -1) a.dossiers.push(d.id);
-      });
-    });
-  });
-  return Array.from(map.values()).sort(function (a, b) {
-    return (b.dossiers.length - a.dossiers.length) || String(a.type).localeCompare(String(b.type), 'fr');
-  });
-}
-
-function blockingSols_(d) {
-  return d.groups.reduce(function (all, g) { return all.concat(g.sols); }, []);
-}
-
-function proposalSols_(d) {
-  return d.groups.reduce(function (all, g) { return all.concat(g.proposals); }, []);
 }
 
 function toolUrl_(id) {
   return CFG.TOOL_URL.replace('{ID}', encodeURIComponent(String(id)));
 }
 
-/* ---------- Suivi de réunion ---------- */
-
-function apiSaveSuivi(p) {
-  if (!p || !p.programme || !p.dossier || !isIsoDate_(p.date)) throw new Error('Données de suivi incomplètes.');
-  if (p.due && !isIsoDate_(p.due)) throw new Error("Date d'échéance invalide.");
-  const lock = LockService.getDocumentLock();
-  lock.waitLock(20000);
-  try {
-    const sh = ensureSheet_(CFG.SHEETS.suivi, SUIVI_HEADER);
-    const last = sh.getLastRow();
-    let target = -1;
-    if (last >= 2) {
-      const keys = sh.getRange(2, 1, last - 1, 3).getDisplayValues();
-      for (let i = 0; i < keys.length; i++) {
-        if (keys[i][0] === p.programme && dateStr_(keys[i][1]) === p.date && keys[i][2] === p.dossier) { target = i + 2; break; }
-      }
-    }
-    if (target < 0) {
-      target = last + 1;
-      if (target > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 200);
-    }
-    const row = sh.getRange(target, 1, 1, SUIVI_HEADER.length);
-    row.setNumberFormat('@');
-    row.setValues([[
-      String(p.programme), p.date, String(p.dossier), p.vu ? 'Oui' : '',
-      String(p.decision || '').slice(0, 1000), p.due || '',
-      Session.getActiveUser().getEmail(), Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm')
-    ]]);
-  } finally {
-    lock.releaseLock();
-  }
-  return true;
+/** Programme model seen through the dashboard filters and the current indicator selection. */
+function scopedModel_(name, f, sel) {
+  const L = logic_();
+  const user = currentUser_();
+  const m = buildProgrammeModel_(String(name), user);
+  f = sanitizeFilters_(f, user);
+  sel = sanitizeSelection_(sel);
+  const sc = L.scope(m, f, sel);
+  return {
+    name: m.name, week: m.week, extraction: m.extraction, today: m.today, toolName: m.toolName,
+    filterLabel: L.filterLabel(f) || (m.leaderView ? 'Case leader: ' + m.leaderView : ''),
+    selectionLabel: L.selectionLabel(sel),
+    sel: sel, kpi: sc.kpi, breakdown: L.breakdown(sc.filtered, sel),
+    dossiers: sc.selected.map(function (d) { return Object.assign({}, d, { view: L.annotate(d, sel) }); }),
+    defs: { KPI: L.KPI, SUB: L.SUB }
+  };
 }
 
-/* ---------- Annuaire ---------- */
+function sanitizeFilters_(f, user) {
+  f = f || {};
+  return {
+    ogs: Array.isArray(f.ogs) ? f.ogs.map(String) : [],
+    leader: user && user.isLeader ? '' : String(f.leader || ''),
+    supplier: String(f.supplier || '')
+  };
+}
+
+function sanitizeSelection_(sel) {
+  sel = sel || {};
+  const kpi = ['open', 'decision', 'applied'].indexOf(sel.kpi) !== -1 ? sel.kpi : 'open';
+  return { kpi: kpi, sub: kpi === 'open' ? '' : String(sel.sub || ''), type: String(sel.type || '') };
+}
+
+/* ---------- Company directory ---------- */
 
 function apiSearchPeople(q) {
   q = String(q || '').trim();
@@ -261,7 +268,7 @@ function apiSearchPeople(q) {
   }).filter(function (p) { return p.email; });
 }
 
-/* ---------- Fiche PDF ---------- */
+/* ---------- PDF report ---------- */
 
 function renderFiche_(m) {
   const t = HtmlService.createTemplateFromFile('FicheTemplate');
@@ -272,112 +279,50 @@ function renderFiche_(m) {
 }
 
 function logoDataUri_() {
-  if(!CFG.LOGO_URL) return '';
+  if (!CFG.LOGO_URL) return '';
   const cache = CacheService.getScriptCache();
   const hit = cache.get('LOGO_URI');
-  if(hit) return hit;
+  if (hit) return hit;
   try {
     const blob = UrlFetchApp.fetch(CFG.LOGO_URL).getBlob();
     const uri = 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
-    if(uri.length < 100000) cache.put('LOGO_URI', uri, 21600);
+    if (uri.length < 100000) cache.put('LOGO_URI', uri, 21600);
     return uri;
-  } catch (e) {return ''; }
+  } catch (e) { return ''; }
 }
 
 function ficheName_(m) {
-  return 'Revue_' + m.name.replace(/[^\w.-]+/g, '-') + '_' + m.meeting + '.pdf';
+  return m.name.replace(/[^\w.-]+/g, '-') + '_status_' + m.today + '.pdf';
 }
 
 function makePdf_(m) {
-  return Utilities.newBlob(renderFiche_(m), 'text/html', 'fiche.html').getAs('application/pdf').setName(ficheName_(m));
+  return Utilities.newBlob(renderFiche_(m), 'text/html', 'report.html').getAs('application/pdf').setName(ficheName_(m));
 }
 
-function apiFicheHtml(name, meeting, filters) {
-  return renderFiche_(applyFilters_(buildProgrammeModel_(String(name), meeting), filters));
+function apiFicheHtml(name, f, sel) {
+  return renderFiche_(scopedModel_(name, f, sel));
 }
 
-function apiPdfToDrive(name, meeting, filters) {
-  const file = reviewsFolder_().createFile(makePdf_(applyFilters_(buildProgrammeModel_(String(name), meeting), filters)));
+function apiPdfToDrive(name, f, sel) {
+  const file = reviewsFolder_().createFile(makePdf_(scopedModel_(name, f, sel)));
   return { url: file.getUrl(), name: file.getName() };
 }
 
-/**
- * Restreint un modèle de programme aux filtres de l'interface :
- * OG (plusieurs possibles), case leader, fournisseur, et éventuellement les seuls cas vus en réunion.
- * Les indicateurs portent sur les cas filtrés ; « vus uniquement » ne réduit que le détail.
- */
-function applyFilters_(m, f) {
-  f = f || {};
-  const ogs = Array.isArray(f.ogs) ? f.ogs.map(String) : [];
-  const leader = String(f.leader || ''), supplier = String(f.supplier || ''), seenOnly = !!f.seenOnly;
-  const active = !!(ogs.length || leader || supplier);
-  if (!active && !seenOnly) return m;
-
-  const match = function (d) {
-    return (!ogs.length || ogs.indexOf(d.og) !== -1) && (!leader || d.leader === leader) && (!supplier || d.supplier === supplier);
-  };
-  const seen = function (d) { return m.current[d.id] && m.current[d.id].vu; };
-  const inScope = m.dossiers.filter(match);
-  const closed = (m.closed || []).filter(match);
-  const shown = seenOnly ? inScope.filter(seen) : inScope;
-
-  const k = { sols: 0, solsGroup: 0, nNew: 0, withProp: 0, seen: 0 };
-  const impl = {};
-  inScope.forEach(function (d) {
-    if (d.isNew) k.nNew++;
-    if (d.nProposals) k.withProp++;
-    if (seen(d)) k.seen++;
-    blockingSols_(d).forEach(function (s) {
-      k.sols++;
-      if (s.origin === 'Groupe') k.solsGroup++;
-      s.impls.forEach(function (im) { impl[im.key] = 1; });
-    });
-  });
-  const open = inScope.length;
-  const nClosed = active ? closed.length : Math.max(0, m.kpi.total - m.kpi.open);
-  const total = open + nClosed;
-
-  const ids = {};
-  inScope.concat(closed).forEach(function (d) { ids[d.id] = 1; });
-  const shownIds = {};
-  shown.forEach(function (d) { shownIds[d.id] = 1; });
-
-  const parts = [];
-  if (ogs.length) parts.push('OG : ' + ogs.join(', '));
-  if (leader) parts.push('Case leader : ' + leader);
-  if (supplier) parts.push('Fournisseur : ' + supplier);
-
-  return Object.assign({}, m, {
-    dossiers: shown,
-    closed: closed,
-    impls: aggregateImpls_(shown),
-    decisions: m.decisions.filter(function (x) { return active ? ids[x.dossier] : true; })
-      .filter(function (x) { return !seenOnly || shownIds[x.dossier] || !x.open; }),
-    kpi: Object.assign({}, m.kpi, {
-      open: open, total: total, rate: total ? Math.round(nClosed / total * 100) : 0,
-      sols: k.sols, solsGroup: k.solsGroup, impls: Object.keys(impl).length,
-      nNew: k.nNew, withProp: k.withProp, seen: k.seen, delta: active ? null : m.kpi.delta
-    }),
-    filterLabel: parts.join(' · '),
-    detailNote: seenOnly ? 'Cas vus en réunion uniquement : ' + shown.length + ' sur ' + open : ''
-  });
-}
-
-/* ---------- Envoi Gmail ---------- */
+/* ---------- Gmail ---------- */
 
 function apiSendFiche(p) {
   const isMail = function (e) { return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(e || '')); };
   const to = (p.to || []).map(function (x) { return String(x.email).trim().toLowerCase(); }).filter(isMail);
   const ccIn = (p.cc || []).map(function (x) { return String(x.email).trim().toLowerCase(); }).filter(isMail);
-  if (!to.length) throw new Error('Ajoutez au moins un destinataire.');
-  if (to.length + ccIn.length > CFG.MAX_RECIPIENTS) throw new Error('Trop de destinataires (' + CFG.MAX_RECIPIENTS + ' au maximum).');
+  if (!to.length) throw new Error('Add at least one recipient.');
+  if (to.length + ccIn.length > CFG.MAX_RECIPIENTS) throw new Error('Too many recipients (' + CFG.MAX_RECIPIENTS + ' maximum).');
   const subject = String(p.subject || '').trim().slice(0, 250);
-  if (!subject) throw new Error("L'objet est vide.");
+  if (!subject) throw new Error('The subject is empty.');
   const body = String(p.body || '').slice(0, 10000);
 
   const me = Session.getActiveUser().getEmail().toLowerCase();
   const cc = Array.from(new Set([me].concat(ccIn))).filter(function (e) { return e && to.indexOf(e) === -1; });
-  const m = applyFilters_(buildProgrammeModel_(String(p.programme), p.meeting), p.filters);
+  const m = scopedModel_(p.programme, p.filters, p.selection);
   const pdf = makePdf_(m);
 
   GmailApp.sendEmail(to.join(','), subject, body, { cc: cc.join(','), attachments: [pdf], name: CFG.APP_NAME });
@@ -387,7 +332,7 @@ function apiSendFiche(p) {
   if (p.log) {
     const sh = ensureSheet_(CFG.SHEETS.envois, ENVOI_HEADER);
     sh.appendRow([
-      Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), me, m.name, m.meeting,
+      Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), me, m.name, m.today,
       JSON.stringify((p.to || []).map(function (x) { return { name: String(x.name || ''), email: String(x.email) }; })),
       cc.join(', '), subject, link
     ]);
@@ -395,35 +340,35 @@ function apiSendFiche(p) {
   return { to: to, cc: cc, link: link };
 }
 
-/* ---------- Export du suivi (Google Sheets) ---------- */
+/* ---------- Export (Google Sheets): exactly the items of the current selection ---------- */
 
-function apiExportSuivi(name, meeting, filters) {
-  const m = applyFilters_(buildProgrammeModel_(String(name), meeting), filters);
-  const header = ['Programme', 'Cas', 'OG', 'Statut', 'Case leader', 'Fournisseur', 'Nouveau', 'Groupe',
-    'Nature', 'Nom solution', 'Type solution', 'Statut solution', 'Origine',
-    'Type implémentation', 'Réf. responsable', 'Statut outil (info)',
-    'Vu le ' + fmtDate_(m.meeting), 'Décision', 'Échéance', 'Lien outil'];
+function apiExport(name, f, sel) {
+  const m = scopedModel_(name, f, sel);
+  const KIND = { blocking: 'Applied, blocking', proposal: 'Proposed', missing: 'Missing', closed: 'Applied, closed' };
+  const header = ['Programme', 'Case', 'New', 'OG', 'Case status', 'Case leader', 'Supplier', 'Group',
+    'Item', 'Category', 'Solution name', 'Solution type', 'Solution status', 'Origin',
+    'Implementation type (CL)', 'Implementation label (CK)', 'Owner reference', 'Implementation status',
+    'Implementation open', 'Link to ' + CFG.TOOL_NAME];
+  const yn = function (v) { return v === 'Oui' ? 'Yes' : v === 'Non' ? 'No' : v === '?' ? 'Unknown' : ''; };
   const rows = [];
   m.dossiers.forEach(function (d) {
-    const c = m.current[d.id] || {};
-    const end = [c.vu ? 'Oui' : '', c.decision || '', c.due ? fmtDate_(c.due) : '', d.url];
-    d.groups.forEach(function (g) {
-      const base = [m.name, d.id, d.og, d.status, d.leader, d.supplier, d.isNew ? 'Oui' : '', g.name];
-      if (g.noSolution) rows.push(base.concat(['Aucune solution appliquée', '', '', '', '', '', '', ''], end));
-      const add = function (nature, s) {
+    d.view.groups.forEach(function (g) {
+      g.main.forEach(function (it) {
+        const base = [m.name, d.id, d.isNew ? 'Yes' : '', d.og, d.status, d.leader, d.supplier, g.name,
+          KIND[it.kind], logic_().CAT_TITLE[it.cat] || ''];
+        const s = it.sol;
+        if (!s) { rows.push(base.concat(['', '', '', '', '', '', '', '', '', d.url])); return; }
+        const sb = [s.name, s.type, s.status, s.origin === 'Groupe' ? 'Group' : 'Programme'];
         const list = s.impls.length ? s.impls : [null];
         list.forEach(function (im) {
-          rows.push(base.concat([nature, s.name, s.type, s.status, s.origin,
-            im ? im.type : '', im ? im.resp : '', im ? im.status : ''], end));
+          rows.push(base.concat(sb, im ? [im.code, im.label, im.resp, im.status, yn(im.open)] : ['', '', '', '', ''], [d.url]));
         });
-      };
-      g.sols.forEach(function (s) { add('Bloquante', s); });
-      g.proposals.forEach(function (s) { add('Proposée (info)', s); });
-      g.done.forEach(function (s) { add('Soldée', s); });
+      });
     });
   });
-  const ss = SpreadsheetApp.create('Suivi ' + m.name + ' – revue du ' + fmtDate_(m.meeting) + (m.filterLabel ? ' (' + m.filterLabel + ')' : ''));
-  const sh = ss.getSheets()[0].setName('Suivi');
+  const title = m.name + ' – ' + m.selectionLabel + (m.filterLabel ? ' (' + m.filterLabel + ')' : '') + ' – ' + fmtDate_(m.today);
+  const ss = SpreadsheetApp.create(title.slice(0, 250));
+  const sh = ss.getSheets()[0].setName('Export');
   sh.getRange(1, 1, rows.length + 1, header.length).setNumberFormat('@');
   sh.getRange(1, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setFontColor('#FFFFFF').setBackground('#00205B');
@@ -431,15 +376,15 @@ function apiExportSuivi(name, meeting, filters) {
   sh.setFrozenRows(1);
   sh.autoResizeColumns(1, header.length);
   DriveApp.getFileById(ss.getId()).moveTo(reviewsFolder_());
-  return { url: ss.getUrl() };
+  return { url: ss.getUrl(), rows: rows.length };
 }
 
 function reviewsFolder_() {
   if (CFG.DRIVE_FOLDER_ID) return DriveApp.getFolderById(CFG.DRIVE_FOLDER_ID);
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('REVIEWS_FOLDER_ID');
-  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recréé ci-dessous */ } }
-  const folder = DriveApp.createFolder(CFG.APP_NAME + ' – revues');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreated below */ } }
+  const folder = DriveApp.createFolder(CFG.APP_NAME + ' – reports');
   props.setProperty('REVIEWS_FOLDER_ID', folder.getId());
   return folder;
 }

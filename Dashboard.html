@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <base target="_top">
   <meta charset="utf-8">
@@ -9,9 +9,14 @@
 </head>
 <body>
   <div id="app" aria-live="polite"></div>
-  <div id="busy" class="busy" hidden><div class="spinner" aria-hidden="true"></div><span id="busy-label">Chargement…</span></div>
+  <div id="busy" class="busy" hidden><div class="spinner" aria-hidden="true"></div><span id="busy-label">Loading…</span></div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <script>window.LOGO_SRC = <?!= JSON.stringify(CFG.LOGO_URL ||'') ?>;</script>
+  <script>
+    window.LOGO_SRC = <?!= JSON.stringify(CFG.LOGO_URL || '') ?>;
+    window.APP_NAME = <?!= JSON.stringify(CFG.APP_NAME || '') ?>;
+    window.TOOL_NAME = <?!= JSON.stringify(CFG.TOOL_NAME || 'TOM') ?>;
+  </script>
+  <script><?!= include_('Logic'); ?></script>
   <?!= include_('App'); ?>
 </body>
 </html>

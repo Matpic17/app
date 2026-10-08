@@ -1,0 +1,174 @@
+/*
+ * Shared logic — loaded by the dashboard (browser) AND by the server (PDF, export),
+ * so that the numbers on screen, in the PDF and in the export are always the same.
+ * Plain JavaScript only: no HTML tags in this file.
+ */
+var LOGIC = (function () {
+  'use strict';
+
+  /* ---------- Definitions shown on the indicators ---------- */
+  var KPI = {
+    open: {
+      title: 'Open cases',
+      unit: 'cases',
+      desc: 'Cases where this programme is still open (cancelled, closed and solved cases excluded).'
+    },
+    decision: {
+      title: 'Solutions awaiting decision',
+      unit: 'solutions',
+      desc: 'Proposed solutions + groups with no solution at all, on open cases.'
+    },
+    applied: {
+      title: 'Applied solutions still blocking',
+      unit: 'solutions',
+      desc: 'Applied solutions whose status is not closed yet (X/Y).'
+    }
+  };
+  var SUB = {
+    decision: [
+      { id: 'PROPOSED', title: 'Proposed', desc: 'Proposed solution, not applied yet.' },
+      { id: 'MISSING', title: 'Missing', desc: 'Open group with neither an applied nor a proposed solution.' }
+    ],
+    applied: [
+      { id: 'NO_IMPL', title: 'No implementation', desc: 'No implementation linked to the solution.' },
+      { id: 'IMPL_CLOSED', title: 'Implementation closed', desc: 'Data inconsistency: all implementations closed, solution still open.', alert: true },
+      { id: 'IN_PROGRESS', title: 'Implementation in progress', desc: 'Open implementation tracked in TOM.' },
+      { id: 'MANUAL', title: 'Manual implementation', desc: 'At least one open manual implementation.' },
+      { id: 'UNCLASSIFIED', title: 'Unclassified', desc: 'Unknown implementation type or status: to be added to Codes.gs.', alert: true, hideIfZero: true }
+    ]
+  };
+  var CAT_TITLE = {};
+  SUB.decision.concat(SUB.applied).forEach(function (s) { CAT_TITLE[s.id] = s.title; });
+
+  var MISSING_KEY = '__MISSING__', NONE_KEY = '__NONE__';
+
+  /* ---------- Filters (OG, case leader, supplier) ---------- */
+  function matchFilters(d, f) {
+    f = f || {};
+    var ogs = f.ogs || [];
+    return (!ogs.length || ogs.indexOf(d.og) !== -1) &&
+      (!f.leader || d.leader === f.leader) &&
+      (!f.supplier || d.supplier === f.supplier);
+  }
+  function filtersActive(f) { return !!(f && ((f.ogs && f.ogs.length) || f.leader || f.supplier)); }
+  function filterLabel(f) {
+    var parts = [];
+    if (f && f.ogs && f.ogs.length) parts.push('OG: ' + f.ogs.join(', '));
+    if (f && f.leader) parts.push('Case leader: ' + f.leader);
+    if (f && f.supplier) parts.push('Supplier: ' + f.supplier);
+    return parts.join(' · ');
+  }
+
+  /* ---------- Items of a case ---------- */
+  // kind: blocking (applied, still open) | proposal | missing (group without any solution) | closed (applied, closed)
+  function itemsOf(d) {
+    var out = [];
+    d.groups.forEach(function (g) {
+      g.blocking.forEach(function (s) { out.push({ kind: 'blocking', cat: s.cat, type: s.type, group: g.name, sol: s }); });
+      g.proposals.forEach(function (s) { out.push({ kind: 'proposal', cat: 'PROPOSED', type: s.type, group: g.name, sol: s }); });
+      if (g.missing) out.push({ kind: 'missing', cat: 'MISSING', type: '', group: g.name, sol: null });
+      g.done.forEach(function (s) { out.push({ kind: 'closed', cat: 'CLOSED', type: s.type, group: g.name, sol: s }); });
+    });
+    return out;
+  }
+
+  /* Key used by the "by solution type" breakdown (missing items are listed by group). */
+  function breakdownKey(it, sel) {
+    if (it.kind === 'missing') return sel && sel.sub === 'MISSING' ? 'G:' + it.group : MISSING_KEY;
+    return it.type || NONE_KEY;
+  }
+  function keyLabel(k) {
+    if (k === MISSING_KEY) return 'Missing solution';
+    if (k === NONE_KEY) return 'No solution type';
+    if (k && k.indexOf('G:') === 0) return 'Group: ' + k.slice(2);
+    return k;
+  }
+
+  function itemMatches(it, sel) {
+    sel = sel || { kpi: 'open' };
+    var ok;
+    if (sel.kpi === 'decision') {
+      ok = (it.kind === 'proposal' && sel.sub !== 'MISSING') || (it.kind === 'missing' && sel.sub !== 'PROPOSED');
+    } else if (sel.kpi === 'applied') {
+      ok = it.kind === 'blocking' && (!sel.sub || it.cat === sel.sub);
+    } else {
+      ok = it.kind !== 'closed';
+    }
+    return ok && (!sel.type || breakdownKey(it, sel) === sel.type);
+  }
+
+  function selectionLabel(sel) {
+    sel = sel || { kpi: 'open' };
+    var parts = [sel.kpi === 'open' ? 'All open cases' : KPI[sel.kpi].title];
+    if (sel.sub) parts.push(CAT_TITLE[sel.sub] || sel.sub);
+    if (sel.type) parts.push(keyLabel(sel.type));
+    return parts.join(' › ');
+  }
+
+  /* ---------- Indicators ---------- */
+  function computeKpis(dossiers, closedCount) {
+    var k = { open: dossiers.length, closed: closedCount || 0, nNew: 0, proposed: 0, missing: 0, applied: 0,
+      cats: { NO_IMPL: 0, IMPL_CLOSED: 0, IN_PROGRESS: 0, MANUAL: 0, UNCLASSIFIED: 0, PROPOSED: 0, MISSING: 0 } };
+    dossiers.forEach(function (d) {
+      if (d.isNew) k.nNew++;
+      itemsOf(d).forEach(function (it) {
+        if (it.kind === 'blocking') { k.applied++; k.cats[it.cat] = (k.cats[it.cat] || 0) + 1; }
+        else if (it.kind === 'proposal') { k.proposed++; k.cats.PROPOSED++; }
+        else if (it.kind === 'missing') { k.missing++; k.cats.MISSING++; }
+      });
+    });
+    k.decision = k.proposed + k.missing;
+    k.total = k.open + k.closed;
+    k.rate = k.total ? Math.round(k.closed / k.total * 100) : 0;
+    return k;
+  }
+
+  /* Breakdown of the current selection (indicator + sub-indicator) by solution type. */
+  function breakdown(dossiers, sel) {
+    if (!sel || sel.kpi === 'open') return [];
+    var base = { kpi: sel.kpi, sub: sel.sub || '' };
+    var map = {}, cases = {};
+    dossiers.forEach(function (d) {
+      itemsOf(d).forEach(function (it) {
+        if (!itemMatches(it, base)) return;
+        var key = breakdownKey(it, base);
+        map[key] = (map[key] || 0) + 1;
+        (cases[key] = cases[key] || {})[d.id] = 1;
+      });
+    });
+    return Object.keys(map).map(function (key) {
+      return { key: key, label: keyLabel(key), count: map[key], cases: Object.keys(cases[key]).length };
+    }).sort(function (a, b) { return (b.count - a.count) || String(a.label).localeCompare(String(b.label)); });
+  }
+
+  /* Case seen through the selection: per group, the items of interest and the others (shown smaller). */
+  function annotate(d, sel) {
+    var groups = d.groups.map(function (g) {
+      var items = itemsOf({ groups: [g] });
+      var main = items.filter(function (it) { return itemMatches(it, sel); });
+      var other = items.filter(function (it) { return !itemMatches(it, sel); });
+      return { name: g.name, noApplied: g.noApplied, missing: g.missing, main: main, other: other };
+    });
+    groups.sort(function (a, b) { return b.main.length - a.main.length; });
+    return { groups: groups, nMain: groups.reduce(function (n, g) { return n + g.main.length; }, 0) };
+  }
+
+  /* Filters + selection applied to a programme model. */
+  function scope(model, f, sel) {
+    var filtered = model.dossiers.filter(function (d) { return matchFilters(d, f); });
+    var closed = (model.closed || []).filter(function (d) { return matchFilters(d, f); });
+    var selected = filtered
+      .map(function (d) { return { d: d, n: itemsOf(d).filter(function (it) { return itemMatches(it, sel); }).length }; })
+      .filter(function (x) { return (sel && sel.kpi !== 'open') || (sel && sel.type) ? x.n > 0 : true; })
+      .sort(function (a, b) { return (b.n - a.n) || String(a.d.id).localeCompare(String(b.d.id), undefined, { numeric: true }); })
+      .map(function (x) { return x.d; });
+    return { filtered: filtered, closed: closed, selected: selected, kpi: computeKpis(filtered, closed.length) };
+  }
+
+  return {
+    KPI: KPI, SUB: SUB, CAT_TITLE: CAT_TITLE, MISSING_KEY: MISSING_KEY,
+    matchFilters: matchFilters, filtersActive: filtersActive, filterLabel: filterLabel,
+    itemsOf: itemsOf, itemMatches: itemMatches, breakdownKey: breakdownKey, keyLabel: keyLabel,
+    selectionLabel: selectionLabel, computeKpis: computeKpis, breakdown: breakdown, annotate: annotate, scope: scope
+  };
+})();

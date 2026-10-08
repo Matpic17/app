@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Revue <?= m.name ?></title>
+<title>Status <?= m.name ?></title>
 <style>
   @page { size: A4; margin: 12mm 11mm; }
   body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 9.5pt; color: #0B1B33; }
@@ -11,152 +11,149 @@
   .mut { color: #4A5B78; }
   .hd td { background: #00205B; color: #FFFFFF; vertical-align: bottom; }
   .eyebrow { font-size: 7.5pt; letter-spacing: 1.2px; text-transform: uppercase; font-weight: bold; color: #4A5B78; }
-  .kpi td { border: 1px solid #D9E0EC; padding: 7px 9px; width: 25%; vertical-align: top; }
-  .kpi .n { font-size: 20pt; font-weight: bold; color: #00205B; }
-  .kpi .dark { background: #00205B; color: #FFFFFF; border-color: #00205B; }
-  .kpi .dark .n, .kpi .dark .eyebrow { color: #FFFFFF; }
-  h2 { font-size: 12pt; color: #00205B; margin: 16px 0 6px; }
+  .kpi td { border: 1px solid #D9E0EC; padding: 7px 9px; vertical-align: top; }
+  .kpi .n { font-size: 19pt; font-weight: bold; color: #00205B; }
+  .kpi .sel { background: #00205B; color: #FFFFFF; border-color: #00205B; }
+  .kpi .sel .n, .kpi .sel .eyebrow, .kpi .sel .mut { color: #FFFFFF; }
+  .subk td { border: 1px solid #E3EAF4; padding: 4px 7px; font-size: 8.5pt; }
+  .subk .on { background: #EEF4FB; border: 1.5px solid #00205B; font-weight: bold; }
+  h2 { font-size: 12pt; color: #00205B; margin: 14px 0 6px; }
   .grid th { text-align: left; font-size: 7.5pt; letter-spacing: .8px; text-transform: uppercase; color: #4A5B78; padding: 5px 6px; border-bottom: 2px solid #00205B; }
   .grid td { padding: 6px; border-bottom: 1px solid #E3EAF4; vertical-align: top; }
   .grid tr { page-break-inside: avoid; }
   .st { background: #FDEBDD; color: #9A3412; font-weight: bold; padding: 0 4px; }
   .impl { background: #00205B; color: #FFFFFF; font-weight: bold; padding: 1px 5px; font-family: 'Courier New', Courier, monospace; }
+  .impl-closed { background: #FFFFFF; color: #4A5B78; border: 1px solid #D9E0EC; text-decoration: line-through; }
   .new { background: #FDEBDD; color: #9A3412; font-weight: bold; font-size: 7.5pt; padding: 0 5px; }
-  .late { color: #9A3412; font-weight: bold; }
+  .cat { font-size: 7.5pt; font-weight: bold; padding: 0 5px; }
+  .cat-NO_IMPL { background: #EEF2F8; color: #0B1B33; }
+  .cat-IMPL_CLOSED { background: #9A3412; color: #FFFFFF; }
+  .cat-IN_PROGRESS { background: #E3EEF9; color: #0B4A85; }
+  .cat-MANUAL { border: 1px solid #00205B; color: #00205B; }
+  .cat-UNCLASSIFIED { background: #FEF3C7; color: #92400E; }
   .grp { border: 1px solid #D9E0EC; padding: 4px 6px; margin-bottom: 4px; }
-  .grp-empty { background: #FDEBDD; border-color: #F5C9A8; }
-  .grp-name { font-weight: bold; color: #00205B; font-size: 8.5pt; border-bottom: 1px solid #E3EAF4; padding-bottom: 2px; }
-  .prop { margin-top: 3px; padding: 3px 6px; border: 1px dashed #7FA6D6; background: #F4F8FD; color: #0B4A85; font-size: 8.5pt; }
+  .grp-name { font-weight: bold; color: #00205B; font-size: 8.5pt; border-bottom: 1px solid #E3EAF4; padding-bottom: 2px; margin-bottom: 2px; }
+  .missing { background: #FDEBDD; color: #9A3412; font-weight: bold; padding: 2px 5px; font-size: 8.5pt; }
+  .prop { margin-top: 3px; padding: 3px 6px; border: 1px dashed #7FA6D6; background: #F4F8FD; color: #0B4A85; }
+  .other { font-size: 7.5pt; color: #4A5B78; margin-top: 3px; }
+  .bd td { padding: 3px 6px; border-bottom: 1px solid #E3EAF4; }
+  .bar { height: 7px; background: #0063B2; }
+  .bd .on td { background: #EEF4FB; font-weight: bold; }
   a { color: #00205B; font-weight: bold; }
-  .notes td { border: 1px solid #D9E0EC; padding: 10px 12px; }
-  .line { border-bottom: 1px solid #D9E0EC; height: 22px; }
 </style>
 </head>
 <body>
+<?
+  var k = m.kpi, sel = m.sel;
+  var title = function (id) { return m.defs.KPI[id].title; };
+  var catTitle = {};
+  m.defs.SUB.decision.concat(m.defs.SUB.applied).forEach(function (s) { catTitle[s.id] = s.title; });
+?>
 
 <table class="hd"><tr>
   <td style="padding:14px 16px">
-    <? if (logo) { ?><img src="<?= logo ?>" alt="Logo" style="height:26px;margin-bottom:8px"><? } ?>
-    <div style="font-size:7.5pt;letter-spacing:1.5px;text-transform:uppercase;font-weight:bold;color:#AFC3E6">Compte rendu de revue programme</div>
+    <? if (logo) { ?><img src="<?= logo ?>" alt="Logo" style="height:26px;margin-bottom:8px"><br><? } ?>
+    <div style="font-size:7.5pt;letter-spacing:1.5px;text-transform:uppercase;font-weight:bold;color:#AFC3E6">Programme status report</div>
     <div class="mono" style="font-size:22pt;font-weight:bold;margin-top:6px"><?= m.name ?></div>
   </td>
   <td style="padding:14px 16px;text-align:right;font-size:9pt;color:#DCE5F4">
-    Réunion du <b style="color:#FFFFFF"><?= fmt(m.meeting) ?></b><br>
-    Extraction <?= m.week ?> · <?= m.extraction ?><br>
-    Taux de clôture <b style="color:#FFFFFF"><?= m.kpi.rate ?> %</b>
+    Report of <b style="color:#FFFFFF"><?= fmt(m.today) ?></b><br>
+    Extract <?= m.week ?> · <?= m.extraction ?><br>
+    Closure rate <b style="color:#FFFFFF"><?= k.rate ?> %</b> (<?= k.closed ?> / <?= k.total ?> cases closed)
   </td>
 </tr></table>
-<? if (m.filterLabel) { ?><p style="margin:6px 0 0;font-size:8.5pt;color:#0B4A85"><b>Périmètre filtré</b> · <?= m.filterLabel ?></p><? } ?>
+<p style="margin:6px 0 0;font-size:9pt;color:#0B4A85"><b>Selection</b> · <?= m.selectionLabel ?><? if (m.filterLabel) { ?> · <b>Filters</b> · <?= m.filterLabel ?><? } ?></p>
 
-<table class="kpi" style="margin-top:10px"><tr>
-  <td><div class="eyebrow">Dossiers ouverts</div><div class="n"><?= m.kpi.open ?></div>
-    <div class="mut" style="font-size:8pt"><?= m.kpi.nNew ?> nouveau<?= m.kpi.nNew > 1 ? 'x' : '' ?> cette semaine</div></td>
-  <td><div class="eyebrow">Solutions bloquantes</div><div class="n" style="color:#9A3412"><?= m.kpi.sols ?></div>
-    <div class="mut" style="font-size:8pt">dont <?= m.kpi.solsGroup ?> héritées d'un groupe</div></td>
-  <td class="dark"><div class="eyebrow">Implémentations à traiter</div><div class="n"><?= m.kpi.impls ?></div></td>
-  <td><div class="eyebrow">Sujets vus en réunion</div><div class="n" style="color:#0B4A85"><?= m.kpi.seen ?> <span style="font-size:11pt;color:#4A5B78">/ <?= m.kpi.open ?></span></div></td>
+<table class="kpi" style="margin-top:8px"><tr>
+  <td style="width:33%" class="<?= sel.kpi === 'open' ? 'sel' : '' ?>"><div class="eyebrow"><?= title('open') ?></div><div class="n"><?= k.open ?> <span style="font-size:9pt">cases</span></div>
+    <div class="mut" style="font-size:8pt"><?= k.nNew ?> new this week</div></td>
+  <td style="width:33%" class="<?= sel.kpi === 'decision' ? 'sel' : '' ?>"><div class="eyebrow"><?= title('decision') ?></div><div class="n"><?= k.decision ?> <span style="font-size:9pt">solutions</span></div>
+    <div class="mut" style="font-size:8pt"><?= k.proposed ?> proposed · <?= k.missing ?> missing</div></td>
+  <td style="width:34%" class="<?= sel.kpi === 'applied' ? 'sel' : '' ?>"><div class="eyebrow"><?= title('applied') ?></div><div class="n"><?= k.applied ?> <span style="font-size:9pt">solutions</span></div>
+    <div class="mut" style="font-size:8pt"><?= k.cats.IMPL_CLOSED ?> data inconsistencies</div></td>
 </tr></table>
 
-<? if (m.impls.length) { ?>
-<h2>Implémentations à lancer</h2>
-<table class="grid">
-  <tr><th style="width:30%">Implémentation</th><th style="width:32%">Solutions</th><th style="width:20%">Statut outil (info)</th><th style="width:18%;text-align:right">Dossiers débloqués</th></tr>
-  <? m.impls.forEach(function (im) { ?>
-  <tr>
-    <td><span class="impl"><?= im.type || 'Implémentation' ?></span><? if (im.resp) { ?><br><span class="mut" style="font-size:8pt">réf. <?= im.resp ?></span><? } ?></td>
-    <td><?= im.sols.join(', ') ?></td>
-    <td class="mut"><i><?= im.status || '—' ?></i></td>
-    <td style="text-align:right;font-size:13pt;font-weight:bold;color:#00205B"><?= im.dossiers.length ?></td>
+<? if (sel.kpi !== 'open') { var subs = m.defs.SUB[sel.kpi].filter(function (s) { return !(s.hideIfZero && !k.cats[s.id]); }); ?>
+<table class="subk" style="margin-top:6px"><tr>
+  <? subs.forEach(function (s) { ?>
+  <td class="<?= sel.sub === s.id ? 'on' : '' ?>"><?= s.title ?>: <b><?= k.cats[s.id] || 0 ?></b><br><span class="mut" style="font-size:7pt;font-weight:normal"><?= s.desc ?></span></td>
+  <? }); ?>
+</tr></table>
+<? } ?>
+
+<? if (m.breakdown.length) { var max = m.breakdown[0].count || 1; ?>
+<h2><?= sel.sub === 'MISSING' ? 'By group' : 'By solution type' ?></h2>
+<table class="bd">
+  <? m.breakdown.slice(0, 15).forEach(function (b) { ?>
+  <tr class="<?= sel.type === b.key ? 'on' : '' ?>">
+    <td style="width:38%"><?= b.label ?></td>
+    <td style="width:42%"><div class="bar" style="width:<?= Math.max(2, Math.round(b.count / max * 100)) ?>%"></div></td>
+    <td style="width:20%;text-align:right"><b><?= b.count ?></b> · <?= b.cases ?> case<?= b.cases > 1 ? 's' : '' ?></td>
   </tr>
   <? }); ?>
 </table>
 <? } ?>
 
-<h2>Détail par cas</h2>
-<? if (m.detailNote) { ?><p class="mut" style="margin:-2px 0 6px;font-size:8.5pt"><?= m.detailNote ?></p><? } ?>
+<h2>Cases (<?= m.dossiers.length ?>)</h2>
 <? if (!m.dossiers.length) { ?>
-<p class="mut">Aucun cas ouvert pour ce programme dans l'extraction de la semaine.</p>
+<p class="mut">No case in this selection.</p>
 <? } else { ?>
 <table class="grid">
-  <tr><th style="width:21%">Cas</th><th style="width:47%">Groupes · solutions · implémentations</th><th style="width:6%">Vu</th><th style="width:26%">Décision · échéance</th></tr>
-  <? m.dossiers.forEach(function (d) { var c = m.current[d.id] || {}; ?>
+  <tr><th style="width:22%">Case</th><th style="width:78%">Groups · solutions · implementations</th></tr>
+  <? m.dossiers.forEach(function (d) { ?>
   <tr>
     <td>
-      <a href="<?= d.url ?>" class="mono"><?= d.id ?></a><? if (d.isNew) { ?> <span class="new">NOUVEAU</span><? } ?><br>
+      <a href="<?= d.url ?>" class="mono"><?= d.id ?></a><? if (d.isNew) { ?> <span class="new">NEW</span><? } ?><br>
       <span style="font-size:8pt"><b><?= d.og ?></b><?= d.status ? ' · ' + d.status : '' ?></span><br>
-      <? if (d.leader) { ?><span class="mut" style="font-size:8pt">Case leader : <?= d.leader ?></span><br><? } ?>
-      <? if (d.supplier) { ?><span class="mut" style="font-size:8pt">Fournisseur : <?= d.supplier ?></span><? } ?>
+      <? if (d.leader) { ?><span class="mut" style="font-size:8pt">Case leader: <?= d.leader ?></span><br><? } ?>
+      <? if (d.supplier) { ?><span class="mut" style="font-size:8pt">Supplier: <?= d.supplier ?></span><br><? } ?>
+      <span class="mut" style="font-size:8pt"><?= d.solDone ?> / <?= d.solTotal ?> applied solutions closed</span>
     </td>
     <td>
-      <? d.groups.forEach(function (g) { ?>
-      <div class="grp<?= g.noSolution ? ' grp-empty' : '' ?>">
+      <? d.view.groups.forEach(function (g) { ?>
+      <div class="grp">
         <div class="grp-name"><?= g.name ?></div>
-        <? if (g.noSolution) { ?><div class="late" style="font-size:8.5pt">Ce groupe n'a pas de solution appliquée</div><? } ?>
-        <? g.sols.forEach(function (s) { ?>
-        <div style="margin-top:3px">
-          <b><?= s.name || s.type ?></b><? if (s.name && s.type) { ?><span class="mut"> · <?= s.type ?></span><? } ?>
-          <span class="st"><?= s.status ?></span>
-          <? if (s.origin !== 'Groupe') { ?><span class="mut" style="font-size:8pt">(propre au programme)</span><? } ?>
-          <? if (s.impls.length) { ?><br>→ <? s.impls.forEach(function (im) { ?><span class="impl"><?= im.type || 'Implémentation' ?></span><? if (im.resp) { ?><span class="mut" style="font-size:8pt"> réf. <?= im.resp ?></span><? } ?> <? }); ?><? } ?>
-        </div>
+        <? g.main.forEach(function (it) { var s = it.sol; ?>
+          <? if (it.kind === 'missing') { ?>
+          <div class="missing">No solution: neither applied nor proposed</div>
+          <? } else if (it.kind === 'proposal') { ?>
+          <div class="prop"><b>Proposed</b> · <b><?= s.name || s.type ?></b><?= s.name && s.type ? ' · ' + s.type : '' ?>
+            <? s.impls.forEach(function (im) { ?><br>→ <span class="impl"><?= im.code || 'Implementation' ?></span><?= im.resp ? ' ref. ' + im.resp : '' ?><?= im.status ? ' · ' + im.status : '' ?><? }); ?>
+          </div>
+          <? } else { ?>
+          <div style="margin-top:3px">
+            <b><?= s.name || s.type ?></b><? if (s.name && s.type) { ?><span class="mut"> · <?= s.type ?></span><? } ?>
+            <span class="st"><?= s.status ?></span>
+            <? if (it.cat && catTitle[it.cat]) { ?><span class="cat cat-<?= it.cat ?>"><?= catTitle[it.cat] ?></span><? } ?>
+            <span class="mut" style="font-size:8pt">(<?= s.origin === 'Groupe' ? 'group' : 'programme' ?> solution)</span>
+            <? s.impls.forEach(function (im) { ?><br>→ <span class="impl<?= im.open === 'Non' ? ' impl-closed' : '' ?>"><?= im.code || 'Implementation' ?></span>
+              <span class="mut" style="font-size:8pt"><?= [im.open === 'Oui' ? 'open' : im.open === 'Non' ? 'closed' : 'unknown status', im.resp ? 'ref. ' + im.resp : '', im.status].filter(Boolean).join(' · ') ?></span><? }); ?>
+            <? if (!s.impls.length) { ?><br><span class="mut" style="font-size:8pt">No implementation linked</span><? } ?>
+          </div>
+          <? } ?>
         <? }); ?>
-        <? if (g.proposals.length) { ?>
-        <div class="prop">Proposée (info) :
-          <? g.proposals.forEach(function (s, i) { ?><?= i ? ' ; ' : '' ?><b><?= s.name || s.type ?></b><? s.impls.forEach(function (im) { ?> → <?= im.type || 'implémentation' ?><? }); ?><? }); ?>
-        </div>
-        <? } ?>
-        <? if (g.done.length) { ?>
-        <div class="mut" style="font-size:8pt;margin-top:3px">Soldées : <?= g.done.map(function (s) { return (s.name || s.type) + ' (' + s.status + ')'; }).join(' ; ') ?></div>
+        <? if (g.other.length) {
+             var otherTxt = g.other.map(function (it) {
+               if (it.kind === 'missing') return 'no solution';
+               var n = it.sol.name || it.sol.type || 'solution';
+               if (it.kind === 'closed') return n + ' (' + it.sol.status + ', closed)';
+               if (it.kind === 'proposal') return 'proposed: ' + n;
+               return n + ' (' + it.sol.status + ', ' + (catTitle[it.cat] || '') + ')';
+             }).join(' ; '); ?>
+        <div class="other"><?= g.main.length ? 'Also in this group: ' : '' ?><?= otherTxt ?></div>
         <? } ?>
       </div>
       <? }); ?>
     </td>
-    <td style="font-weight:bold;color:<?= c.vu ? '#0B4A85' : '#8592A8' ?>"><?= c.vu ? 'Oui' : '—' ?></td>
-    <td>
-      <?= c.decision || '' ?>
-      <? if (c.due) { ?><br><b style="color:#0B4A85">Échéance <?= fmt(c.due) ?></b><? } ?>
-    </td>
   </tr>
   <? }); ?>
 </table>
 <? } ?>
-
-<? var withProp = m.dossiers.filter(function (d) { return d.nProposals; }); if (withProp.length) { ?>
-<h2>Propositions en attente : une décision est-elle à prendre ?</h2>
-<table class="grid">
-  <tr><th style="width:16%">Cas</th><th style="width:18%">Groupe</th><th style="width:28%">Solution appliquée (fait foi)</th><th style="width:38%">Proposition en attente</th></tr>
-  <? withProp.forEach(function (d) { d.groups.filter(function (g) { return g.proposals.length; }).forEach(function (g) { ?>
-  <tr>
-    <td><a href="<?= d.url ?>" class="mono"><?= d.id ?></a></td>
-    <td><?= g.name ?></td>
-    <td><?= g.sols.concat(g.done).length ? g.sols.concat(g.done).map(function (s) { return (s.name || s.type) + ' (' + s.status + ')'; }).join(' ; ') : 'Aucune' ?></td>
-    <td><? g.proposals.forEach(function (s, i) { ?><?= i ? ' ; ' : '' ?><b><?= s.name || s.type ?></b><?= s.name && s.type ? ' · ' + s.type : '' ?><? s.impls.forEach(function (im) { ?> → <?= im.type || 'implémentation' ?><?= im.resp ? ' (réf. ' + im.resp + ')' : '' ?><? }); ?><? }); ?></td>
-  </tr>
-  <? }); }); ?>
-</table>
-<? } ?>
-
-<? var late = m.decisions.filter(function (x) { return x.late; }); if (late.length) { ?>
-<h2>Engagements en retard</h2>
-<table class="grid">
-  <tr><th style="width:18%">Cas</th><th>Décision</th><th style="width:16%">Échéance</th><th style="width:16%">Prise le</th></tr>
-  <? late.forEach(function (x) { ?>
-  <tr><td class="mono"><?= x.dossier ?></td><td><?= x.decision ?></td><td class="late"><?= fmt(x.due) ?></td><td class="mut"><?= fmt(x.meeting) ?></td></tr>
-  <? }); ?>
-</table>
-<? } ?>
-
-<table class="notes" style="margin-top:16px"><tr><td>
-  <table><tr>
-    <td style="border:0;padding:0;font-size:11pt;font-weight:bold;color:#00205B">Engagements à suivre</td>
-    <td style="border:0;padding:0;text-align:right" class="mut">Prochaine revue : ____ / ____ / ________</td>
-  </tr></table>
-  <div class="line"></div><div class="line"></div><div class="line"></div>
-</td></tr></table>
 
 <p class="mut" style="font-size:7.5pt;margin-top:10px">
-  Le statut de la solution fait foi · soldée si X/Y avec X = Y, ou ≥ 7/9 · programme sans solution = ouvert ·
-  la solution du programme prime sur celle du groupe · statut d'implémentation donné à titre indicatif.
+  The solution status is the reference · closed if X/Y with X = Y, or ≥ 7/9 · no applied solution = open ·
+  the programme solution prevails over the group solution · implementation type from column CL (manual or tracked in <?= m.toolName ?>),
+  implementation status from column CU (open or closed) · each case number opens the case in <?= m.toolName ?>.
 </p>
 </body>
 </html>

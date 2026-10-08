@@ -1,17 +1,21 @@
 <script>
 (function () {
   'use strict';
+  var L = window.LOGIC;
 
-  /* ---------- État ---------- */
+  /* ---------- State ---------- */
   var S = {
-    me: '', refresh: null, programmes: [], recent: [],
-    view: 'home', prog: null, meeting: today(), tab: 'dossier', nonVus: false, limit: 60,
-    ogs: [], leader: '', supplier: '', withProp: false,
-    send: null
+    appName: window.APP_NAME || 'Programme Monitoring', tool: window.TOOL_NAME || 'TOM',
+    user: { email: '', isLeader: false, leaderNames: [] }, refresh: null,
+    programmes: [], leaders: [], recent: [], homeLeader: '', homeQuery: '',
+    view: 'home', prog: null,
+    f: { ogs: [], leader: '', supplier: '' },
+    sel: { kpi: 'open', sub: '', type: '' },
+    limit: 50, send: null
   };
   var app = document.getElementById('app');
 
-  /* ---------- Outils ---------- */
+  /* ---------- Helpers ---------- */
   function run(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
     return new Promise(function (resolve, reject) {
@@ -33,6 +37,7 @@
     var p = String(d).split('-');
     return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d;
   }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
   function errMsg(e) { return (e && e.message) ? e.message : String(e); }
   var toastTimer;
   function toast(msg, kind, link) {
@@ -41,10 +46,10 @@
     t.innerHTML = esc(msg) + (link ? ' · <a href="' + esc(link.url) + '" target="_blank" rel="noopener" style="color:#fff;font-weight:700">' + esc(link.label) + '</a>' : '');
     t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.hidden = true; }, link ? 12000 : 4000);
+    toastTimer = setTimeout(function () { t.hidden = true; }, link ? 12000 : 4500);
   }
   function busy(on, label) {
-    document.getElementById('busy-label').textContent = label || 'Chargement…';
+    document.getElementById('busy-label').textContent = label || 'Loading…';
     document.getElementById('busy').hidden = !on;
   }
   function isMail(s) { return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(s || '').trim()); }
@@ -53,339 +58,304 @@
     back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></svg>',
     search: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
     chev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>',
-    clock: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    down: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>',
     ext: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
     wrench: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>',
     doc: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>',
-    down: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>',
-    cal: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
+    user: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+    info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+    warn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 21h20z"/><path d="M12 10v5M12 18h.01"/></svg>',
     x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     lock: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4A5B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
     send: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
+    clock: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     ok: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>',
-    info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
     check: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0B4A85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>'
   };
 
-  /* ---------- Rendu ---------- */
-  function render() {
-    if (S.view === 'home') app.innerHTML = homeView();
-    else if (S.view === 'prog') app.innerHTML = progView();
-    else app.innerHTML = sendView();
-    if (S.view === 'home') renderTiles('');
-    if (S.view === 'send' && S.send && S.send.html) setPreview(S.send.html);
-  }
-
-  function logohtml() {
+  function logoHtml() {
     return window.LOGO_SRC
-    ? '<img class="logo-img" src="' + esc(window.LOGO_SRC) + '" alt="Logo">'
-    : '<div class="logo">LOGO</div>';
+      ? '<img class="logo-img" src="' + esc(window.LOGO_SRC) + '" alt="Logo">'
+      : '<div class="logo">LOGO</div>';
   }
 
-  function topbar() {
+  function topbar(title) {
     var r = S.refresh;
-    return '<div class="wrap topbar"><div class="brand">' + logohtml() + 'Pilotage des clôtures</div>' +
-      '<span class="meta">' + (r ? 'Extraction du ' + esc(r.date) + ' · ' + esc(r.week) : 'Aucune actualisation pour le moment') + '</span></div>';
+    return '<div class="wrap topbar"><div class="brand">' + logoHtml() + esc(title || S.appName) + '</div>' +
+      '<span class="meta">' + (r ? 'Extract of ' + esc(r.date) + ' · ' + esc(r.week) : 'No refresh yet') + '</span></div>';
   }
 
-  /* Accueil */
+  /* ---------- Rendering ---------- */
+  function render() {
+    if (S.view === 'home') { app.innerHTML = homeView(); renderTiles(); }
+    else if (S.view === 'prog') app.innerHTML = progView();
+    else { app.innerHTML = sendView(); if (S.send && S.send.html) setPreview(S.send.html); }
+  }
+
+  /* ===== Home ===== */
+  function homeProgrammes() {
+    if (S.user.isLeader || !S.homeLeader) return S.programmes;
+    var L0 = S.leaders.filter(function (x) { return x.name === S.homeLeader; })[0];
+    if (!L0) return [];
+    return S.programmes.filter(function (p) { return L0.progs[p.name]; })
+      .map(function (p) { return { name: p.name, open: L0.progs[p.name] }; });
+  }
+
   function homeView() {
-    var recent = S.recent.length ? '<section aria-labelledby="t-rec"><h2 id="t-rec" class="eyebrow" style="margin-bottom:12px">Récemment consultés</h2><div class="grid3">' +
-      S.recent.map(function (r) {
-        return '<button type="button" class="tile tile-lg" data-act="open-prog" data-name="' + esc(r.name) + '">' +
-          '<span style="display:flex;align-items:center;gap:12px">' + I.clock + '<span class="tile-col"><span class="mono">' + esc(r.name) + '</span>' +
-          '<span class="mut sm">' + (r.lastReview ? 'Dernière revue le ' + fmt(r.lastReview) : 'Jamais revu') + '</span></span></span>' + I.chev + '</button>';
+    var u = S.user;
+    var who = u.isLeader
+      ? '<div class="whoami">' + I.user + 'Signed in as ' + esc(u.leaderNames.join(', ')) + ' · case leader</div>' +
+        '<p>Only the programmes where you have open cases are listed, with your cases only.</p>'
+      : '<p>Select a programme to see its open cases, the solutions awaiting a decision and the applied solutions still blocking.</p>';
+    var leaderFld = (!u.isLeader && S.leaders.length)
+      ? '<div><label for="home-leader">Case leader</label><select id="home-leader"><option value="">All case leaders</option>' +
+        S.leaders.map(function (x) { return '<option value="' + esc(x.name) + '"' + (x.name === S.homeLeader ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') +
+        '</select></div>'
+      : '';
+    var unknown = '';
+    var r = S.refresh;
+    if (!u.isLeader && r && ((r.unknownStatus || []).length || (r.unknownTypes || []).length)) {
+      var list = function (a) { return a.slice(0, 8).map(function (x) { return '<code>' + esc(x[0]) + '</code> (' + x[1] + ')'; }).join(', '); };
+      unknown = '<div class="notice">' + I.warn + '<div><b>Unknown implementation codes at the last refresh.</b> The solutions concerned are counted as “Unclassified”. Add these values to Codes.gs.' +
+        ((r.unknownStatus || []).length ? '<br>Status (CU): ' + list(r.unknownStatus) : '') +
+        ((r.unknownTypes || []).length ? '<br>Type (CL): ' + list(r.unknownTypes) : '') + '</div></div>';
+    }
+    var available = homeProgrammes().map(function (p) { return p.name; });
+    var recent = S.recent.filter(function (n) { return available.indexOf(n) !== -1; }).slice(0, 3);
+    var recentHtml = recent.length ? '<section aria-labelledby="t-rec"><h2 id="t-rec" class="eyebrow" style="margin-bottom:12px">Recently viewed</h2><div class="grid3">' +
+      recent.map(function (n) {
+        return '<button type="button" class="tile" data-act="open-prog" data-name="' + esc(n) + '"><span style="display:flex;align-items:center;gap:10px;color:#4A5B78">' + I.clock +
+          '<span class="mono" style="color:#00205B">' + esc(n) + '</span></span>' + I.chev + '</button>';
       }).join('') + '</div></section>' : '';
-    var none = !S.programmes.length ? '<div class="empty">Aucune donnée calculée. Lancez « Actualiser les données maintenant » depuis le menu du fichier.</div>' : '';
-    return '<div class="top">' + topbar() + '<section class="hero"><div class="wrap">' +
-      '<h1>Quel programme voulez-vous analyser ?</h1>' +
-      '<p>Sélectionnez un programme pour voir ses dossiers encore ouverts, les solutions qui bloquent et les implémentations à lancer.</p>' +
-      '<label for="q">Rechercher un programme</label><div class="search">' + I.search +
-      '<input id="q" type="search" autocomplete="off" placeholder="Tapez un nom de programme"></div></div></section></div>' +
-      '<main class="wrap stack">' + recent + none +
-      '<section aria-labelledby="t-all"><div class="row-between" style="margin-bottom:12px"><h2 id="t-all" class="eyebrow">Tous les programmes</h2><span class="mut sm" id="count"></span></div>' +
+    var none = !S.programmes.length
+      ? '<div class="empty">' + (u.isLeader ? 'You have no open case as case leader.' : 'No data yet. Run “Refresh data now” from the spreadsheet menu.') + '</div>' : '';
+    return '<div class="top">' + topbar() + '<section class="hero"><div class="wrap">' + '<h1>Which programme do you want to review?</h1>' + who +
+      '<div class="hero-row"><div style="flex:1;min-width:280px;max-width:640px"><label for="q">Search a programme</label><div class="search">' + I.search +
+      '<input id="q" type="search" autocomplete="off" placeholder="Type a programme name" value="' + esc(S.homeQuery) + '"></div></div>' + leaderFld + '</div></div></section></div>' +
+      '<main class="wrap stack">' + unknown + recentHtml + none +
+      '<section aria-labelledby="t-all"><div class="row-between" style="margin-bottom:12px"><h2 id="t-all" class="eyebrow">' +
+      (S.homeLeader ? 'Programmes of ' + esc(S.homeLeader) : u.isLeader ? 'Your programmes' : 'All programmes') + '</h2><span class="mut sm" id="count"></span></div>' +
       '<div class="grid4" id="tiles"></div></section></main>';
   }
 
-  function renderTiles(q) {
+  function renderTiles() {
     var tiles = document.getElementById('tiles');
     if (!tiles) return;
-    var ql = q.trim().toLowerCase();
-    var list = S.programmes.filter(function (n) { return n.toLowerCase().indexOf(ql) !== -1; });
-    tiles.innerHTML = list.length ? list.map(function (n) {
-      return '<button type="button" class="tile" data-act="open-prog" data-name="' + esc(n) + '"><span class="mono">' + esc(n) + '</span>' + I.chev + '</button>';
-    }).join('') : (S.programmes.length ? '<div class="empty">Aucun programme ne correspond à « ' + esc(q) + ' »</div>' : '');
-    document.getElementById('count').textContent = list.length + (list.length > 1 ? ' programmes' : ' programme');
+    var ql = S.homeQuery.trim().toLowerCase();
+    var list = homeProgrammes().filter(function (p) { return p.name.toLowerCase().indexOf(ql) !== -1; });
+    tiles.innerHTML = list.length ? list.map(function (p) {
+      return '<button type="button" class="tile" data-act="open-prog" data-name="' + esc(p.name) + '"><span class="tile-col"><span class="mono">' + esc(p.name) + '</span>' +
+        '<span class="mut sm">' + plural(p.open, 'open case') + '</span></span>' + I.chev + '</button>';
+    }).join('') : (S.programmes.length ? '<div class="empty">No programme matches “' + esc(S.homeQuery) + '”</div>' : '');
+    document.getElementById('count').textContent = plural(list.length, 'programme');
   }
 
-  /* Vue programme */
+  /* ===== Programme view ===== */
+  function current() {
+    return L.scope(S.prog, S.f, S.sel);
+  }
+
   function progView() {
-    var p = S.prog, st = stats(p);
-    return '<div class="top">' + topbar() + progHeader(p, st) + '</div>' +
-      '<main class="wrap stack">' + (p.kpi.total ? filterBar(p, st) : '') + kpis(p, st) + meetingBand(p) +
-      '<section class="card" style="min-width:0" id="analysis">' + analysis(p) + '</section>' +
-      '<section class="legend"><span><span class="pill-st">4/6</span> statut de la solution (fait foi)</span>' +
-      '<span><span class="impl" style="font-size:12px">IMPL</span> action à mener · statut outil indicatif</span>' +
-      '<span>Soldé si X/Y avec X = Y, ou ≥ 7/9 · sans solution = ouvert · la solution du programme prime sur celle du groupe</span></section>' +
-      '</main>';
+    var p = S.prog, sc = current();
+    return '<div class="top">' + topbar() + progHeader(p, sc) + '</div>' +
+      '<main class="wrap stack">' + filterBar(p, sc) +
+      '<div id="kpis">' + kpiRow(p, sc) + '</div>' +
+      '<div id="drill">' + drillPanel(sc) + '</div>' +
+      '<section class="card" style="min-width:0" id="cases">' + caseList(p, sc) + '</section>' +
+      legend() + '</main>';
   }
 
-  function progHeader(p, st) {
-    var opts = S.programmes.map(function (n) { return '<option value="' + esc(n) + '"' + (n === p.name ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+  function progHeader(p, sc) {
+    var opts = (S.user.isLeader ? S.programmes.map(function (x) { return x.name; }) : S.programmes.map(function (x) { return x.name; }))
+      .map(function (n) { return '<option value="' + esc(n) + '"' + (n === p.name ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
     return '<div class="wrap phead">' +
-      '<button type="button" class="back" data-act="home">' + I.back + 'Tous les programmes</button>' +
+      '<button type="button" class="back" data-act="home">' + I.back + 'All programmes</button>' +
       '<div class="phead-row"><div style="display:flex;flex-direction:column;gap:6px">' +
       '<div class="eyebrow" style="color:#AFC3E6">Programme</div><h1>' + esc(p.name) + '</h1>' +
-      '<div class="rate" id="rate">' + rateInner(st) + '</div></div>' +
-      '<div class="actions"><div class="select-wrap"><label for="switch">Changer de programme</label><select id="switch">' + opts + '</select></div>' +
-      '<button type="button" class="btn btn-ghost" data-act="export">' + I.down + 'Exporter le suivi</button>' +
-      '<button type="button" class="btn btn-white" data-act="send">' + I.doc + 'Exporter et envoyer la fiche</button></div></div></div>';
+      (p.leaderView ? '<span class="leader-badge">' + I.user + 'Your cases as case leader</span>' : '') +
+      '<div class="rate" id="rate">' + rateInner(sc) + '</div></div>' +
+      '<div class="actions"><div class="select-wrap"><label for="switch">Switch programme</label><select id="switch">' + opts + '</select></div>' +
+      '<button type="button" class="btn btn-ghost" data-act="export">' + I.down + 'Export to Sheets</button>' +
+      '<button type="button" class="btn btn-white" data-act="send">' + I.doc + 'Send report</button></div></div></div>';
   }
 
-  function rateInner(st) {
-    return '<span>Taux de clôture' + (filtersActive() ? ' (filtré)' : ' du programme') + '</span>' +
-      '<span class="rate-bar" role="img" aria-label="' + st.rate + ' %"><span style="width:' + st.rate + '%"></span></span>' +
-      '<b style="color:#fff">' + st.rate + ' %</b>' +
-      '<span style="color:#C9D6EE">(' + st.closed + ' cas soldés sur ' + st.total + ')</span>';
+  function rateInner(sc) {
+    var k = sc.kpi;
+    return '<span>Closure rate' + (L.filtersActive(S.f) ? ' (filtered)' : '') + '</span>' +
+      '<span class="rate-bar" role="img" aria-label="' + k.rate + ' %"><span style="width:' + k.rate + '%"></span></span>' +
+      '<b style="color:#fff">' + k.rate + ' %</b>' +
+      '<span style="color:#C9D6EE">(' + k.closed + ' closed cases out of ' + k.total + ')</span>';
   }
 
-  /* ---------- Filtres et indicateurs recalculés ---------- */
-  function filtersActive() { return !!(S.ogs.length || S.leader || S.supplier); }
-
-  /* Périmètre transmis au serveur pour la fiche, le PDF, l'envoi et l'export. */
-  function scope(extra) {
-    var f = { ogs: S.ogs.slice(), leader: S.leader, supplier: S.supplier };
-    for (var k in (extra || {})) f[k] = extra[k];
-    return f;
-  }
-
-  function scopeLabel() {
-    var parts = [];
-    if (S.ogs.length) parts.push('OG : ' + S.ogs.join(', '));
-    if (S.leader) parts.push('Case leader : ' + S.leader);
-    if (S.supplier) parts.push('Fournisseur : ' + S.supplier);
-    return parts.join(' · ');
-  }
-
-  function matchFilters(d) {
-    return (!S.ogs.length || S.ogs.indexOf(d.og) !== -1) && (!S.leader || d.leader === S.leader) && (!S.supplier || d.supplier === S.supplier);
-  }
-  function filteredDossiers(p) { return p.dossiers.filter(matchFilters); }
-  function filteredClosed(p) { return (p.closed || []).filter(matchFilters); }
-
-  function stats(p) {
-    var ds = filteredDossiers(p), cl = filteredClosed(p);
-    var r = { open: ds.length, closed: cl.length, sols: 0, her: 0, impls: 0, nNew: 0, withProp: 0, seen: 0, dec: 0 };
-    var impl = {};
-    ds.forEach(function (d) {
-      var c = p.current[d.id];
-      if (d.isNew) r.nNew++;
-      if (d.nProposals) r.withProp++;
-      if (c && c.vu) r.seen++;
-      if (c && c.decision) r.dec++;
-      d.groups.forEach(function (g) {
-        g.sols.forEach(function (s) {
-          r.sols++;
-          if (s.origin === 'Groupe') r.her++;
-          s.impls.forEach(function (im) { impl[im.key] = 1; });
-        });
-      });
-    });
-    r.impls = Object.keys(impl).length;
-    // Sans filtre : on reprend le total calculé par l'actualisation (onglet _Programmes), toujours fiable.
-    if (!filtersActive()) r.closed = Math.max(0, p.kpi.total - p.kpi.open);
-    r.total = r.open + r.closed;
-    r.rate = r.total ? Math.round(r.closed / r.total * 100) : 0;
-    r.pct = r.open ? Math.round(r.seen / r.open * 100) : 0;
-    return r;
-  }
-
-  function options(list, current, allLabel) {
+  function options(list, cur, allLabel) {
     return '<option value="">' + allLabel + '</option>' + (list || []).map(function (v) {
-      return '<option value="' + esc(v) + '"' + (v === current ? ' selected' : '') + '>' + esc(v) + '</option>';
+      return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>';
     }).join('');
   }
 
-  function filterBar(p, st) {
+  function filterBar(p, sc) {
     var f = p.filters || {};
-    return '<section class="card filters-bar" aria-label="Filtres du programme">' +
+    return '<section class="card filters-bar" aria-label="Filters">' +
       ((f.ogs || []).length ? '<fieldset class="og-set"><legend>OG</legend><div class="og-list">' + f.ogs.map(function (v) {
-        return '<label class="og-chk"><input type="checkbox" name="f-og" value="' + esc(v) + '"' + (S.ogs.indexOf(v) !== -1 ? ' checked' : '') + '>' + esc(v) + '</label>';
+        return '<label class="og-chk"><input type="checkbox" name="f-og" value="' + esc(v) + '"' + (S.f.ogs.indexOf(v) !== -1 ? ' checked' : '') + '>' + esc(v) + '</label>';
       }).join('') + '</div></fieldset>' : '') +
-      '<div class="fld"><label for="f-leader">Case leader</label><select id="f-leader">' + options(f.leaders, S.leader, 'Tous') + '</select></div>' +
-      '<div class="fld"><label for="f-supplier">Fournisseur</label><select id="f-supplier">' + options(f.suppliers, S.supplier, 'Tous') + '</select></div>' +
-      '<div id="filter-note" class="filter-note">' + filterNote(p, st) + '</div></section>';
+      (S.user.isLeader ? '' : '<div class="fld"><label for="f-leader">Case leader</label><select id="f-leader">' + options(f.leaders, S.f.leader, 'All') + '</select></div>') +
+      '<div class="fld"><label for="f-supplier">Supplier</label><select id="f-supplier">' + options(f.suppliers, S.f.supplier, 'All') + '</select></div>' +
+      '<div id="filter-note" class="filter-note">' + filterNote(p, sc) + '</div></section>';
   }
 
-  function filterNote(p, st) {
-    if (!filtersActive()) return '<span class="mut sm">Les indicateurs et la liste portent sur tout le programme.</span>';
-    return '<span class="sm"><b>' + st.open + '</b> cas ouverts sur ' + p.kpi.open + ' correspondent aux filtres : indicateurs recalculés.</span>' +
-      '<button type="button" class="btn btn-link" data-act="clear-filters">Effacer les filtres</button>';
+  function filterNote(p, sc) {
+    if (!L.filtersActive(S.f)) return '<span class="mut sm">Indicators and cases cover the whole programme' + (p.leaderView ? ' (your cases)' : '') + '.</span>';
+    return '<span class="sm"><b>' + sc.kpi.open + '</b> of ' + p.dossiers.length + ' open cases match the filters: indicators recomputed.</span>' +
+      '<button type="button" class="btn btn-link" data-act="clear-filters">Clear filters</button>';
   }
 
-  /* Met à jour indicateurs, taux, note et liste sans toucher aux listes déroulantes. */
-  function refreshFiltered() {
-    var p = S.prog, st = stats(p);
-    var k = document.getElementById('kpis');
-    if (k) k.outerHTML = kpis(p, st);
-    var r = document.getElementById('rate');
-    if (r) r.innerHTML = rateInner(st);
-    var n = document.getElementById('filter-note');
-    if (n) n.innerHTML = filterNote(p, st);
-    renderAnalysis();
+  /* Indicators */
+  function hist(field, sub) {
+    var h = (S.prog.history || []).filter(function (x) { return sub ? x.cats : (field === 'decision' ? x.decision != null : true); });
+    return h.map(function (x) { return sub ? x.cats[sub] : x[field]; });
   }
-
-  function spark(history) {
-    if (history.length < 2) return '';
-    var vals = history.map(function (h) { return h.open; });
+  function spark(vals) {
+    if (vals.length < 2 || L.filtersActive(S.f)) return '';
     var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals), n = vals.length;
     var pts = vals.map(function (v, i) { return (i * 160 / (n - 1)).toFixed(1) + ',' + (4 + (mx - v) / ((mx - mn) || 1) * 32).toFixed(1); }).join(' ');
-    return '<svg width="130" height="40" viewBox="-4 0 168 40" role="img" aria-label="Évolution sur ' + n + ' semaines"><polyline points="' + pts + '" fill="none" stroke="#0063B2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+    return '<svg width="120" height="40" viewBox="-4 0 168 40" role="img" aria-label="Trend over ' + n + ' weeks"><polyline points="' + pts + '" fill="none" stroke="#0063B2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
+  function delta(vals) {
+    if (vals.length < 2 || L.filtersActive(S.f)) return '';
+    var d = vals[vals.length - 1] - vals[vals.length - 2];
+    if (!d) return '<span>= vs last week</span>';
+    return '<span class="' + (d < 0 ? 'delta-good' : 'delta-bad') + '">' + (d < 0 ? '▼ ' + (-d) : '▲ ' + d) + ' vs last week</span>';
   }
 
-  function kpis(p, st) {
-    var k = p.kpi, filtered = filtersActive();
-    var delta = k.delta == null ? 'Première semaine suivie' :
-      (k.delta < 0 ? '▼ ' + (-k.delta) : k.delta > 0 ? '▲ ' + k.delta : '= stable') + ' vs semaine précédente';
-    var trend = filtered ? '' : '<b style="color:#0B4A85">' + esc(delta) + '</b> · ';
-    return '<section class="kpis" id="kpis" aria-label="Indicateurs du programme">' +
-      '<div class="kpi"><div class="lbl">cas ouverts</div><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px"><div class="num">' + st.open + '</div>' + (filtered ? '' : spark(p.history)) + '</div>' +
-      '<div class="sub">' + trend + '<b style="color:#9A3412">' + st.nNew + ' nouveau' + (st.nNew > 1 ? 'x' : '') + '</b>' +
-      (st.withProp ? ' · ' + st.withProp + ' avec proposition en attente' : '') + '</div></div>' +
-      '<div class="kpi"><div class="lbl">Solutions</div><div class="num num-warn">' + st.sols + '</div><div class="sub">dont ' + st.her + ' héritées d’un groupe</div></div>' +
-      '<div class="kpi kpi-dark"><div class="lbl">' + I.wrench + 'Implémentations à traiter</div><div class="num">' + st.impls + '</div><div class="sub">le levier d’action du responsable</div></div>' +
-      '<div class="kpi" id="kpi-seen">' + seenKpiInner(st) + '</div></section>';
+  function kpiRow(p, sc) {
+    var k = sc.kpi;
+    var card = function (id, num, foot, h) {
+      var def = L.KPI[id];
+      return '<button type="button" class="kpi" data-act="kpi" data-kpi="' + id + '" aria-pressed="' + (S.sel.kpi === id) + '">' +
+        '<span class="lbl"><span>' + esc(def.title) + '</span>' + (id === 'open' ? '' : '<span class="drill">Details ›</span>') + '</span>' +
+        '<span class="num-row"><span class="num">' + num + '<small>' + def.unit + '</small></span>' + spark(h) + '</span>' +
+        '<span class="desc">' + esc(def.desc) + '</span>' +
+        '<span class="foot">' + foot + delta(h) + '</span></button>';
+    };
+    return '<section class="kpis" aria-label="Indicators">' +
+      card('open', k.open, '<span><b>' + k.nNew + '</b> new this week</span>', hist('open')) +
+      card('decision', k.decision, '<span>' + k.proposed + ' proposed · ' + k.missing + ' missing</span>', hist('decision')) +
+      card('applied', k.applied, '<span>' + k.cats.IMPL_CLOSED + ' data inconsistencies</span>' +
+        (k.cats.UNCLASSIFIED ? '<span>' + k.cats.UNCLASSIFIED + ' unclassified</span>' : ''), hist('applied')) +
+      '</section>';
   }
 
-  function seenKpiInner(st) {
-    return '<div class="lbl">' + I.cal + 'Revue du ' + fmt(S.meeting) + '</div>' +
-      '<div class="num num-blue">' + st.seen + ' <small>/ ' + st.open + ' vus</small></div>' +
-      '<div class="bar bar-lg"><span style="width:' + st.pct + '%;background:#0B4A85"></span></div>' +
-      '<div class="sub">' + st.dec + ' décision' + (st.dec > 1 ? 's' : '') + ' consignée' + (st.dec > 1 ? 's' : '') + '</div>';
-  }
-
-  function meetingBand(p) {
-    var chips = p.meetings.filter(function (m) { return m.date !== S.meeting; }).slice(0, 6).map(function (m) {
-      return '<button type="button" class="chip-btn" data-act="meeting" data-date="' + esc(m.date) + '">' + fmt(m.date) + ' <span class="mut">' + m.seen + ' vus</span></button>';
+  /* Drill-down: sub-indicators, breadcrumb, breakdown by solution type */
+  function drillPanel(sc) {
+    var sel = S.sel;
+    if (sel.kpi === 'open') return '';
+    var k = sc.kpi;
+    var subs = L.SUB[sel.kpi].filter(function (s) { return !(s.hideIfZero && !k.cats[s.id]); }).map(function (s) {
+      var n = k.cats[s.id] || 0;
+      return '<button type="button" class="sub' + (s.alert && n ? ' sub-alert' : '') + '" data-act="sub" data-sub="' + s.id + '" aria-pressed="' + (sel.sub === s.id) + '">' +
+        '<span class="t"><span class="dot c-' + s.id + '"></span>' + esc(s.title) + '</span>' +
+        '<span class="n">' + n + '</span><span class="d">' + esc(s.desc) + '</span>' + subDelta(s.id) + '</button>';
     }).join('');
-    return '<section class="card meeting" aria-label="Réunion de suivi">' +
-      '<div class="fld"><label for="meeting">Date de la réunion</label><input id="meeting" type="date" value="' + esc(S.meeting) + '" style="width:190px"></div>' +
-      '<div class="fld grow"><span class="lbl">Réunions précédentes</span><div class="chips">' + (chips || '<span class="mut" style="min-height:44px;display:flex;align-items:center">Aucune pour ce programme</span>') + '</div></div>' +
-      '<p class="mut sm" style="margin:0;max-width:340px">Chaque case « vu », décision et échéance est enregistrée automatiquement et conservée d’une extraction à l’autre.</p></section>';
+    var bd = L.breakdown(sc.filtered, sel);
+    var max = bd.reduce(function (m, b) { return Math.max(m, b.count); }, 0) || 1;
+    var bdTitle = sel.sub === 'MISSING' ? 'By group' : 'By solution type';
+    var bdHtml = bd.length ? '<div class="bd" role="group" aria-label="' + bdTitle + '">' + bd.map(function (b) {
+      return '<button type="button" class="bd-row" data-act="type" data-type="' + esc(b.key) + '" aria-pressed="' + (sel.type === b.key) + '">' +
+        '<span class="l" title="' + esc(b.label) + '">' + esc(b.label) + '</span>' +
+        '<span class="bd-track"><span style="width:' + Math.max(2, Math.round(b.count / max * 100)) + '%"></span></span>' +
+        '<span class="c"><b>' + b.count + '</b> · ' + plural(b.cases, 'case') + '</span></button>';
+    }).join('') + '</div>' : '<p class="mut" style="margin:0">Nothing in this category.</p>';
+    return '<section class="card drill-panel" aria-label="Details">' + crumbs() +
+      '<div class="subs">' + subs + '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px"><h3 class="eyebrow">' + bdTitle + ' <span style="text-transform:none;letter-spacing:0;font-weight:400">· click a line to filter the cases</span></h3>' + bdHtml + '</div></section>';
   }
 
-  function analysis(p) {
-    var t = S.tab;
-    var label = t === 'dossier' ? filteredDossiers(p).length + ' cas où le programme est encore ouvert'
-      : t === 'impl' ? aggImpls(filteredDossiers(p)).length + ' implémentations à lancer, triées par nombre de cas débloqués'
-      : 'Ce qui a été vu, décidé et promis, réunion après réunion';
-    var head = '<div class="ahead"><div><h2>Ce qui bloque au ' + esc(p.name) + '</h2><div class="mut sm">' + esc(label) + '</div></div>' +
-      '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><div class="seg" role="group" aria-label="Mode d’affichage">' +
-      segBtn('dossier', 'Par cas') + segBtn('impl', 'Par implémentation') + segBtn('suivi', 'Suivi des réunions') + '</div>' +
-      (t === 'dossier' && p.kpi.open
-        ? '<label class="chk"><input type="checkbox" id="nonvus"' + (S.nonVus ? ' checked' : '') + '> Non vus uniquement</label>' +
-          '<label class="chk"><input type="checkbox" id="withprop"' + (S.withProp ? ' checked' : '') + '> Avec proposition en attente</label>'
-        : '') +
-      '</div></div>';
-    if (!p.kpi.open && t !== 'suivi') {
-      return head + '<div class="blank">' + I.check + '<div class="cond">Aucun cas ouvert pour ce programme</div><div class="mut">Toutes ses solutions sont soldées dans l’extraction de la semaine.</div></div>';
+  function subDelta(id) {
+    var v = hist(null, id);
+    if (v.length < 2 || L.filtersActive(S.f)) return '';
+    var d = v[v.length - 1] - v[v.length - 2];
+    return '<span class="d">' + (d ? (d < 0 ? '▼ ' + (-d) : '▲ ' + d) + ' vs last week' : '= vs last week') + '</span>';
+  }
+
+  function crumbs() {
+    var sel = S.sel, parts = ['<button type="button" data-act="crumb" data-level="0">All open cases</button>'];
+    var cur = function (t) { return '<span class="cur">' + esc(t) + '</span>'; };
+    var sep = '<span class="sep">›</span>';
+    var title = L.KPI[sel.kpi].title;
+    parts.push(sel.sub || sel.type ? '<button type="button" data-act="crumb" data-level="1">' + esc(title) + '</button>' : cur(title));
+    if (sel.sub) parts.push(sel.type ? '<button type="button" data-act="crumb" data-level="2">' + esc(L.CAT_TITLE[sel.sub]) + '</button>' : cur(L.CAT_TITLE[sel.sub]));
+    if (sel.type) parts.push(cur(L.keyLabel(sel.type)));
+    return '<nav class="crumbs" aria-label="Selection">' + parts.join(sep) + '</nav>';
+  }
+
+  /* Case list */
+  function caseList(p, sc) {
+    var list = sc.selected;
+    var head = '<div class="ahead"><div><h2>' + esc(L.selectionLabel(S.sel)) + '</h2><div class="mut sm">' +
+      plural(list.length, 'case') + (S.sel.kpi === 'open' ? ' where the programme is still open' : ' concerned') +
+      (L.filtersActive(S.f) ? ' · ' + esc(L.filterLabel(S.f)) : '') + '</div></div></div>';
+    if (!p.dossiers.length) {
+      return head + '<div class="blank">' + I.check + '<div class="cond">No open case for this programme</div><div class="mut">All its applied solutions are closed in this week’s extract.</div></div>';
     }
-    if (t === 'impl') return head + implList(p);
-    if (t === 'suivi') return head + suiviView(p);
-    return head + dossierList(p);
-  }
-  function segBtn(id, label) {
-    return '<button type="button" data-act="tab" data-tab="' + id + '" aria-pressed="' + (S.tab === id) + '">' + label + '</button>';
-  }
-
-  /* Implémentations des solutions bloquantes, recalculées selon les filtres. */
-  function aggImpls(dossiers) {
-    var map = {}, order = [];
-    dossiers.forEach(function (d) {
-      d.groups.forEach(function (g) {
-        g.sols.forEach(function (s) {
-          s.impls.forEach(function (im) {
-            var a = map[im.key];
-            if (!a) { a = map[im.key] = { type: im.type, status: im.status, resp: im.resp, sols: [], dossiers: [] }; order.push(im.key); }
-            var label = s.name || s.type;
-            if (label && a.sols.indexOf(label) === -1) a.sols.push(label);
-            if (a.dossiers.indexOf(d.id) === -1) a.dossiers.push(d.id);
-          });
-        });
-      });
-    });
-    return order.map(function (k) { return map[k]; })
-      .sort(function (x, y) { return (y.dossiers.length - x.dossiers.length) || String(x.type).localeCompare(String(y.type), 'fr'); });
-  }
-
-  function dossierList(p) {
-    var list = filteredDossiers(p).filter(function (d) {
-      return (!S.nonVus || !(p.current[d.id] && p.current[d.id].vu)) && (!S.withProp || d.nProposals);
-    });
+    if (!list.length) return head + '<div class="blank"><div class="cond">No case in this selection</div><div class="mut">Change the filters or pick another indicator.</div></div>';
     var shown = list.slice(0, S.limit);
-    var rows = shown.map(function (d, i) { return dossierRow(p, d, i); }).join('');
     var more = list.length > shown.length
-      ? '<div class="more"><span>' + shown.length + ' cas affichés sur ' + list.length + '</span><button type="button" class="btn" data-act="more">Afficher plus</button></div>'
-      : '<div class="more"><span>' + (list.length ? list.length + ' cas · tri par nombre de solutions bloquantes' : 'Aucun cas ne correspond aux filtres') + '</span></div>';
-    return '<div class="thead cols-d"><span>Cas</span><span>Groupes, solutions et implémentations</span><span>Outil</span></div>' + rows + more;
+      ? '<div class="more"><span>' + shown.length + ' of ' + list.length + ' cases shown</span><button type="button" class="btn" data-act="more">Show more</button></div>'
+      : '<div class="more"><span>' + plural(list.length, 'case') + ' · sorted by number of items in the selection</span></div>';
+    return head + '<div class="thead cols-d"><span>Case</span><span>Groups, solutions and implementations</span><span>' + esc(S.tool) + '</span></div>' +
+      shown.map(caseRow).join('') + more;
   }
 
-  function dossierRow(p, d, i) {
-    var c = p.current[d.id] || {};
+  function caseRow(d) {
+    var v = L.annotate(d, S.sel);
     var pct = d.solTotal ? Math.round(d.solDone / d.solTotal * 100) : 0;
     var info = [
       d.leader ? '<span><span class="k">Case leader</span> ' + esc(d.leader) + '</span>' : '',
-      d.supplier ? '<span><span class="k">Fournisseur</span> ' + esc(d.supplier) + '</span>' : ''
+      d.supplier ? '<span><span class="k">Supplier</span> ' + esc(d.supplier) + '</span>' : ''
     ].join('');
-    return '<article class="drow-wrap' + (c.vu ? ' is-seen' : '') + '" data-dossier="' + esc(d.id) + '">' +
-      '<div class="drow cols-d">' +
+    return '<article class="drow-wrap"><div class="drow cols-d">' +
       '<div style="display:flex;flex-direction:column;gap:6px">' +
-      '<div class="idline"><span class="mono">' + esc(d.id) + '</span>' + (d.isNew ? '<span class="badge-new">Nouveau</span>' : '') + '</div>' +
+      '<div class="idline"><span class="mono">' + esc(d.id) + '</span>' + (d.isNew ? '<span class="badge-new">New</span>' : '') + '</div>' +
       '<div class="idline">' + (d.og ? '<span class="tag">' + esc(d.og) + '</span>' : '') + (d.status ? '<span class="tag tag-soft">' + esc(d.status) + '</span>' : '') + '</div>' +
       (info ? '<div class="dinfo">' + info + '</div>' : '') +
-      '<div class="mut sm">' + d.solDone + ' / ' + d.solTotal + ' solutions soldées</div><div class="bar"><span style="width:' + pct + '%"></span></div></div>' +
-      '<div class="groups">' + d.groups.map(groupCard).join('') + '</div>' +
-      '<div><a class="btn" href="' + esc(d.url) + '" target="_blank" rel="noopener" aria-label="Ouvrir le cas ' + esc(d.id) + ' dans TOM">Ouvrir ' + I.ext + '</a></div>' +
-      '</div>' +
-      '<div class="track">' +
-      '<label class="chk"><input type="checkbox" data-f="vu"' + (c.vu ? ' checked' : '') + '> Vu en réunion du ' + fmt(S.meeting) + '</label>' +
-      '<div class="fld grow"><label for="dec-' + i + '">Décision du programme</label><input id="dec-' + i + '" type="text" data-f="decision" maxlength="1000" value="' + esc(c.decision || '') + '" placeholder="ex. implémentation lancée, clôture visée fin novembre"></div>' +
-      '<div class="fld w180"><label for="due-' + i + '">Échéance annoncée</label><input id="due-' + i + '" type="date" data-f="due" value="' + esc(c.due || '') + '"></div>' +
-      '<span class="saved" aria-live="polite"></span></div></article>';
+      '<div class="mut sm">' + d.solDone + ' / ' + d.solTotal + ' applied solutions closed</div><div class="bar"><span style="width:' + pct + '%"></span></div></div>' +
+      '<div class="groups">' + v.groups.map(groupCard).join('') + '</div>' +
+      '<div><a class="btn" href="' + esc(d.url) + '" target="_blank" rel="noopener" aria-label="Open case ' + esc(d.id) + ' in ' + esc(S.tool) + '">Open ' + I.ext + '</a></div>' +
+      '</div></article>';
   }
 
-  /* Une carte par groupe : solutions bloquantes, propositions, solutions soldées. */
   function groupCard(g) {
-    var counts = [
-      g.sols.length ? g.sols.length + ' bloquante' + (g.sols.length > 1 ? 's' : '') : '',
-      g.proposals.length ? g.proposals.length + ' proposée' + (g.proposals.length > 1 ? 's' : '') : '',
-      g.done.length ? g.done.length + ' soldée' + (g.done.length > 1 ? 's' : '') : ''
-    ].filter(Boolean).join(' · ');
-    var head = '<div class="grp-head"><span class="grp-name">' + esc(g.name) + '</span>' + (counts ? '<span class="mut sm">' + counts + '</span>' : '') + '</div>';
-    var cls = 'grp';
-    var body = '';
-    if (g.noSolution) {
-      cls += ' grp-empty';
-      body += '<div class="grp-empty-msg">Ce groupe n’a pas de solution appliquée</div>';
-    } else if (!g.sols.length) {
-      cls += ' grp-ok';
+    var dim = !g.main.length;
+    var counts = countsLabel(g.main.concat(g.other));
+    var body = g.main.map(itemBlock).join('');
+    if (g.noApplied && !g.missing && g.main.some(function (it) { return it.kind === 'proposal'; })) {
+      body = '<div class="noapplied">No applied solution in this group</div>' + body;
     }
-    body += g.sols.map(solBlock).join('');
-    if (g.proposals.length) body += propBlock(g);
-    if (g.done.length) {
-      body += '<div class="done-list"><span class="xs-lbl">Soldées</span>' + g.done.map(function (s) {
-        return '<span class="done-chip">' + esc(s.name || s.type || 'Solution') + ' <b>' + esc(s.status) + '</b></span>';
-      }).join('') + '</div>';
-    }
-    return '<div class="' + cls + '">' + head + body + '</div>';
+    var others = g.other.length ? '<div class="others"><span class="xs-lbl">' + (dim ? '' : 'Also in this group') + '</span>' + g.other.map(miniItem).join('') + '</div>' : '';
+    return '<div class="grp' + (dim ? ' grp-dim' : '') + '"><div class="grp-head"><span class="grp-name">' + esc(g.name) + '</span>' +
+      (counts ? '<span class="mut sm">' + counts + '</span>' : '') + '</div>' + body + others + '</div>';
   }
 
-  function implChips(impls) {
-    return impls.map(function (im) {
-      var info = [im.resp ? 'réf. ' + im.resp : '', im.status ? 'outil : ' + im.status : ''].filter(Boolean).join(' · ');
-      return '<span class="impl-wrap"><span class="impl">' + I.wrench + esc(im.type || 'Implémentation') + '</span>' +
-        (info ? '<span class="info">' + esc(info) + '</span>' : '') + '</span>';
-    }).join('');
+  function countsLabel(items) {
+    var c = { blocking: 0, proposal: 0, closed: 0 };
+    items.forEach(function (it) { if (c[it.kind] != null) c[it.kind]++; });
+    return [c.blocking ? c.blocking + ' blocking' : '', c.proposal ? c.proposal + ' proposed' : '', c.closed ? c.closed + ' closed' : '']
+      .filter(Boolean).join(' · ');
+  }
+
+  function catBadge(cat) {
+    return cat && L.CAT_TITLE[cat] ? '<span class="badge b-' + cat + '">' + (cat === 'IMPL_CLOSED' ? 'Data inconsistency · ' : '') + esc(L.CAT_TITLE[cat]) + '</span>' : '';
+  }
+
+  function implRows(impls) {
+    return '<div class="impls">' + impls.map(function (im) {
+      var flag = im.open === 'Oui' ? '<span class="flag f-open">Open</span>' : im.open === 'Non' ? '<span class="flag f-closed">Closed</span>' : '<span class="flag f-unknown">Unknown status</span>';
+      var kind = im.manual === 'Oui' ? 'manual' : im.manual === 'Non' ? 'in ' + S.tool : (im.open === 'Non' ? '' : 'unknown type');
+      var meta = [im.label, im.resp ? 'ref. ' + im.resp : '', im.status ? 'status: ' + im.status : '', kind].filter(Boolean).join(' · ');
+      return '<div class="impl-row"><span class="impl' + (im.open === 'Non' ? ' impl-closed' : '') + '">' + I.wrench + esc(im.code || 'Implementation') + '</span>' + flag +
+        '<span class="info">' + esc(meta) + '</span></div>';
+    }).join('') + '</div>';
   }
 
   function solTitle(s) {
@@ -393,98 +363,83 @@
       (s.name && s.type ? '<span class="mut sm">' + esc(s.type) + '</span>' : '');
   }
 
-  function solBlock(s) {
-    var origin = s.origin === 'Groupe'
-      ? '<span class="badge-grp">Du groupe</span>'
-      : '<span class="badge-prg">Propre au programme</span>';
-    var impls = s.impls.length
-      ? '<div class="impls"><span class="xs-lbl">À implémenter</span>' + implChips(s.impls) + '</div>'
-      : '<div class="mut sm">Aucune implémentation renseignée</div>';
-    return '<div class="sol"><div class="sol-head">' + solTitle(s) +
-      '<span class="pill-st">' + esc(s.status || '—') + '</span>' + origin + '</div>' + impls + '</div>';
+  function itemBlock(it) {
+    var s = it.sol;
+    if (it.kind === 'missing') return '<div class="missing">This group has no solution: neither applied nor proposed</div>';
+    if (it.kind === 'proposal') {
+      return '<div class="prop"><div class="prop-head">' + I.info + '<b>Proposed</b>' + solTitle(s) +
+        '<span class="mut sm">' + (s.origin === 'Groupe' ? 'group solution' : 'programme solution') + '</span></div>' +
+        (s.impls.length ? implRows(s.impls) : '<span class="mut sm">No implementation yet</span>') + '</div>';
+    }
+    var origin = s.origin === 'Groupe' ? '<span class="badge-grp">Group solution</span>' : '<span class="badge-prg">Programme solution</span>';
+    return '<div class="sol"><div class="sol-head">' + solTitle(s) + '<span class="pill-st">' + esc(s.status || '—') + '</span>' + origin + catBadge(it.cat) + '</div>' +
+      (s.impls.length ? '<span class="xs-lbl">Implementations</span>' + implRows(s.impls) : '<span class="mut sm">No implementation linked</span>') + '</div>';
   }
 
-  function propBlock(g) {
-    var q = g.sols.length || g.done.length
-      ? 'La solution appliquée fait foi. Une décision est-elle à prendre ?'
-      : 'Aucune solution n’est appliquée. Une décision est-elle à prendre ?';
-    return '<div class="prop"><div class="prop-head">' + I.info + '<b>Proposition' + (g.proposals.length > 1 ? 's' : '') + ' en attente</b><span class="mut sm">pour information, hors calcul</span></div>' +
-      g.proposals.map(function (s) {
-        return '<div class="prop-item"><div class="sol-head">' + solTitle(s) +
-          '<span class="mut sm">' + (s.origin === 'Groupe' ? 'du groupe' : 'propre au programme') + '</span></div>' +
-          (s.impls.length ? '<div class="impls">' + implChips(s.impls) + '</div>' : '') + '</div>';
-      }).join('') +
-      '<div class="prop-q">' + q + '</div></div>';
+  function miniItem(it) {
+    var s = it.sol;
+    if (it.kind === 'missing') return '<span class="mini mini-missing">No solution</span>';
+    var name = esc(s.name || s.type || 'Solution');
+    if (it.kind === 'closed') return '<span class="mini mini-closed">' + name + ' <b>' + esc(s.status) + '</b></span>';
+    if (it.kind === 'proposal') return '<span class="mini mini-prop">Proposed: ' + name + '</span>';
+    return '<span class="mini">' + name + ' · ' + esc(s.status) + ' · ' + esc(L.CAT_TITLE[it.cat] || '') + '</span>';
   }
 
-  function implList(p) {
-    var impls = aggImpls(filteredDossiers(p));
-    if (!impls.length) return '<div class="blank"><div class="cond">Aucune implémentation renseignée</div><div class="mut">Les solutions affichées n’ont pas encore d’implémentation.</div></div>';
-    return '<div class="thead cols-i"><span>Implémentation</span><span>Solutions · cas concernés</span><span>Cas débloqués</span><span>Statut outil (info)</span></div>' +
-      impls.map(function (im) {
-        var ids = im.dossiers.slice(0, 6).join(' · ') + (im.dossiers.length > 6 ? '  +' + (im.dossiers.length - 6) : '');
-        return '<div class="irow cols-i"><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start"><span class="impl impl-lg">' + I.wrench + esc(im.type || 'Implémentation') + '</span>' +
-          (im.resp ? '<span class="mut sm">réf. ' + esc(im.resp) + '</span>' : '') + '</div>' +
-          '<div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:14px;font-weight:600">' + esc(im.sols.join(', ')) + '</span><span class="mono mut sm">' + esc(ids) + '</span></div>' +
-          '<div style="display:flex;align-items:baseline;gap:6px"><span class="big">' + im.dossiers.length + '</span><span class="mut sm">cas</span></div>' +
-          '<div class="info" style="font-size:14px">' + esc(im.status || '—') + '</div></div>';
-      }).join('');
+  function legend() {
+    return '<section class="legend"><span><span class="pill-st">4/6</span> solution status (the reference)</span>' +
+      '<span><span class="impl" style="font-size:12px">CODE</span> implementation type (CL) · status (CU) open or closed</span>' +
+      '<span>Closed if X/Y with X = Y, or ≥ 7/9 · no applied solution = open · the programme solution prevails over the group solution</span></section>';
   }
 
-  function suiviView(p) {
-    var meetings = p.meetings.map(function (m) {
-      var cur = m.date === S.meeting;
-      return '<button type="button" class="mcard" data-act="meeting" data-date="' + esc(m.date) + '" aria-pressed="' + cur + '">' +
-        '<span style="display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%"><span class="cond">' + fmt(m.date) + '</span>' +
-        (cur ? '<span class="st-done">Affichée</span>' : '') + '</span>' +
-        '<span class="mut sm">' + m.seen + ' sujet' + (m.seen > 1 ? 's' : '') + ' vu' + (m.seen > 1 ? 's' : '') + ' · ' + m.decisions + ' décision' + (m.decisions > 1 ? 's' : '') + '</span></button>';
-    }).join('');
-    var decs = p.decisions.length ? p.decisions.map(function (d) {
-      var st = !d.open ? '<span class="st-done">Soldé depuis</span>' : d.late ? '<span class="st-late">Échéance dépassée</span>' : '<span class="st-open">Toujours ouvert</span>';
-      return '<div class="decrow cols-dec"><span class="mono strong" style="color:#00205B">' + esc(d.dossier) + '</span><span>' + esc(d.decision) + '</span>' +
-        '<span class="strong" style="color:' + (d.late ? '#9A3412' : '#0B1B33') + '">' + fmt(d.due) + '</span><span class="mut sm">' + fmt(d.meeting) + '</span><span>' + st + '</span></div>';
-    }).join('') : '<div class="blank"><div class="cond">Aucune décision consignée</div><div class="mut">Les décisions saisies en réunion apparaîtront ici avec leur échéance.</div></div>';
-    return '<div class="suivi"><div style="display:flex;flex-direction:column;gap:10px"><h3 class="eyebrow">Historique des réunions</h3>' + meetings + '</div>' +
-      '<div style="display:flex;flex-direction:column;gap:10px;min-width:0"><h3 class="eyebrow">Décisions et engagements</h3><div class="box">' +
-      (p.decisions.length ? '<div class="thead cols-dec"><span>cas</span><span>Décision</span><span>Échéance</span><span>Réunion</span><span>État actuel</span></div>' : '') +
-      decs + '</div></div></div>';
+  function refreshProgramme() {
+    var p = S.prog, sc = current();
+    document.getElementById('kpis').innerHTML = kpiRow(p, sc);
+    document.getElementById('drill').innerHTML = drillPanel(sc);
+    document.getElementById('cases').innerHTML = caseList(p, sc);
+    var r = document.getElementById('rate'); if (r) r.innerHTML = rateInner(sc);
+    var n = document.getElementById('filter-note'); if (n) n.innerHTML = filterNote(p, sc);
   }
 
-  function renderAnalysis() {
-    var el = document.getElementById('analysis');
-    if (el) el.innerHTML = analysis(S.prog);
+  /* ===== Send report ===== */
+  function sendCounts() {
+    var sc = current(), items = 0;
+    sc.selected.forEach(function (d) { items += L.annotate(d, S.sel).nMain; });
+    return { cases: sc.selected.length, items: items };
   }
 
-  /* Envoi */
+  function scopeText() {
+    var fl = L.filterLabel(S.f);
+    return L.selectionLabel(S.sel) + (fl ? ' · ' + fl : '');
+  }
+
   function sendView() {
     var p = S.prog, s = S.send;
-    var head = '<div class="top"><div class="wrap topbar"><div class="brand">' + logohtml() + 'Envoyer la fiche de revue · <span class="mono" style="letter-spacing:0;text-transform:none;color:#fff;font-size:16px">' + esc(p.name) + '</span></div>' +
-      '<button type="button" class="btn btn-ghost" data-act="back-prog">' + I.back + 'Retour au programme</button></div></div>';
-    var left = '<div class="preview"><div style="align-self:stretch;display:flex;justify-content:space-between;align-items:center;gap:8px">' +
-      '<span class="eyebrow">Aperçu du PDF · réunion du ' + fmt(S.meeting) + '</span></div>' +
-      '<div class="frame"><iframe id="preview" title="Aperçu de la fiche" sandbox=""></iframe></div>' +
-      '<span class="mut sm">Faites défiler l’aperçu pour voir toute la fiche.</span></div>';
+    var head = '<div class="top"><div class="wrap topbar"><div class="brand">' + logoHtml() + 'Send the report · <span class="mono" style="letter-spacing:0;text-transform:none;color:#fff;font-size:16px">' + esc(p.name) + '</span></div>' +
+      '<button type="button" class="btn btn-ghost" data-act="back-prog">' + I.back + 'Back to the programme</button></div></div>';
+    var left = '<div class="preview"><div style="align-self:stretch"><span class="eyebrow">PDF preview</span></div>' +
+      '<div class="frame"><iframe id="preview" title="Report preview" sandbox=""></iframe></div>' +
+      '<span class="mut sm">Scroll inside the preview to see the whole report.</span></div>';
     var right = s.result ? sentView(s.result) : sendForm(p, s);
     return head + '<div class="send">' + left + '<div class="form card" style="border-radius:0;border:0">' + right + '</div></div>';
   }
 
   function sendForm(p, s) {
-    var hint = (p.lastTo && p.lastTo.length) ? '<div class="hint">' + I.clock + 'Pré-rempli avec le dernier destinataire de ' + esc(p.name) + '</div>' : '';
+    var c = sendCounts();
+    var hint = (p.lastTo && p.lastTo.length) ? '<div class="hint">' + I.clock + 'Pre-filled with the last recipient of ' + esc(p.name) + '</div>' : '';
     return '<div class="form-body">' +
-      recipField('to', 'À · responsable et destinataires', 'Nom ou adresse…') + hint +
-      recipField('cc', 'Cc', 'Ajouter une personne en copie…') +
-      '<div class="fld"><label for="subj">Objet</label><input id="subj" type="text" maxlength="250" value="' + esc(s.subject) + '"></div>' +
+      recipField('to', 'To · owner and recipients', 'Name or e-mail address…') + hint +
+      recipField('cc', 'Cc', 'Add someone in copy…') +
+      '<div class="fld"><label for="subj">Subject</label><input id="subj" type="text" maxlength="250" value="' + esc(s.subject) + '"></div>' +
       '<div class="fld"><label for="body">Message</label><textarea id="body" rows="8" maxlength="10000">' + esc(s.bodyTouched ? s.body : defaultBody()) + '</textarea></div>' +
-      '<div class="send-scope"><div id="send-scope" class="send-scope-info">' + sendScopeInner() + '</div>' +
-      '<label class="chk"><input type="checkbox" id="opt-seen"' + (s.seenOnly ? ' checked' : '') + '> Uniquement les cas vus en réunion du ' + fmt(S.meeting) +
-      ' <span class="mut sm">(' + sendCounts().seen + ')</span></label>' +
-      '<span class="mut sm">Décochée : la fiche reprend tous les cas filtrés.</span></div>' +
-      '<div class="attach"><span class="pdf">PDF</span><span style="display:flex;flex-direction:column"><span class="mono strong" style="font-size:14px">Revue_' + esc(p.name) + '_' + esc(S.meeting) + '.pdf</span><span class="mut sm">Généré à l’envoi · liens TOM cliquables</span></span></div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:4px 24px"><label class="chk"><input type="checkbox" id="opt-drive"' + (s.saveDrive ? ' checked' : '') + '> Copie dans le cas Drive des revues</label>' +
-      '<label class="chk"><input type="checkbox" id="opt-log"' + (s.log ? ' checked' : '') + '> Consigner l’envoi dans le suivi</label></div>' +
-      '</div><div class="form-foot"><button type="button" class="btn" data-act="back-prog" style="border-color:transparent">Annuler</button>' +
-      '<div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="btn" data-act="pdf-drive">' + I.down + 'Ouvrir le PDF</button>' +
-      '<button type="button" class="btn btn-primary" data-act="do-send" id="do-send"' + (s.to.length ? '' : ' disabled') + '>' + I.send + 'Envoyer via Gmail</button></div></div>';
+      '<div class="send-scope"><span class="xs-lbl">Report content: exactly what is on screen</span>' +
+      '<span class="sm"><b>' + esc(scopeText()) + '</b></span><span class="sm">' + plural(c.cases, 'case') + ' · ' + plural(c.items, 'item') + '</span>' +
+      (c.cases ? '' : '<span class="sm" style="color:#9A3412;font-weight:600">Nothing to send in this selection: go back and change it.</span>') + '</div>' +
+      '<div class="attach"><span class="pdf">PDF</span><span style="display:flex;flex-direction:column"><span class="mono strong" style="font-size:14px">' + esc(p.name) + '_status_' + today() + '.pdf</span><span class="mut sm">Generated when sending · clickable ' + esc(S.tool) + ' links</span></span></div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:4px 24px"><label class="chk"><input type="checkbox" id="opt-drive"' + (s.saveDrive ? ' checked' : '') + '> Save a copy in the reports Drive folder</label>' +
+      '<label class="chk"><input type="checkbox" id="opt-log"' + (s.log ? ' checked' : '') + '> Log the e-mail</label></div>' +
+      '</div><div class="form-foot"><button type="button" class="btn" data-act="back-prog" style="border-color:transparent">Cancel</button>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="btn" data-act="pdf-drive">' + I.down + 'Open the PDF</button>' +
+      '<button type="button" class="btn btn-primary" data-act="do-send" id="do-send"' + (s.to.length && c.cases ? '' : ' disabled') + '>' + I.send + 'Send with Gmail</button></div></div>';
   }
 
   function recipField(field, label, ph) {
@@ -497,11 +452,11 @@
   function chipsHtml(field) {
     var s = S.send, html = '';
     if (field === 'cc') {
-      html += '<span class="person person-locked" title="Vous êtes toujours en copie">' + I.lock + '<span class="who"><b>Vous</b><span>' + esc(S.me) + '</span></span></span>';
+      html += '<span class="person person-locked" title="You are always in copy">' + I.lock + '<span class="who"><b>You</b><span>' + esc(S.user.email) + '</span></span></span>';
     }
     return html + s[field].map(function (c) {
       return '<span class="person"><span class="who"><b>' + esc(c.name || c.email) + '</b><span>' + esc(c.email) + '</span></span>' +
-        '<button type="button" class="x" data-act="rm" data-field="' + field + '" data-email="' + esc(c.email) + '" aria-label="Retirer ' + esc(c.name || c.email) + '">' + I.x + '</button></span>';
+        '<button type="button" class="x" data-act="rm" data-field="' + field + '" data-email="' + esc(c.email) + '" aria-label="Remove ' + esc(c.name || c.email) + '">' + I.x + '</button></span>';
     }).join('');
   }
 
@@ -509,7 +464,7 @@
     var el = document.getElementById('chips-' + field);
     if (el) el.innerHTML = chipsHtml(field);
     var btn = document.getElementById('do-send');
-    if (btn) btn.disabled = !S.send.to.length;
+    if (btn) btn.disabled = !S.send.to.length || !sendCounts().cases;
     if (field === 'to' && !S.send.bodyTouched) {
       var b = document.getElementById('body');
       if (b) b.value = defaultBody();
@@ -525,27 +480,25 @@
       return '<button type="button" role="option" data-act="add" data-field="' + field + '" data-idx="' + i + '">' +
         '<span style="display:flex;flex-direction:column"><span class="n">' + esc(pp.name || pp.email) + '</span><span class="e">' + esc(pp.email) + '</span></span>' +
         '<span class="e">' + esc(pp.title || '') + '</span></button>';
-    }).join('') + (list.length ? '<div class="mut" style="padding:6px 10px 2px;font-size:12px">Résultats de l’annuaire de l’entreprise</div>' : '');
+    }).join('') + (list.length ? '<div class="mut" style="padding:6px 10px 2px;font-size:12px">Results from the company directory</div>' : '');
   }
 
   function defaultBody() {
     var p = S.prog, s = S.send, first = '';
     if (s && s.to[0] && s.to[0].name && s.to[0].name.indexOf('@') === -1) first = ' ' + s.to[0].name.split(' ')[0];
-    var c = sendCounts(), label = scopeLabel();
-    var what = (s && s.seenOnly ? 'les ' + c.listed + ' cas vus en réunion' : 'les ' + c.listed + ' cas encore ouverts') +
-      (label ? ' (' + label + ')' : '');
-    return 'Bonjour' + first + ',\n\n' +
-      'Vous trouverez ci-joint le compte rendu de la revue du ' + fmt(S.meeting) + ' pour le programme ' + p.name + ' : ' +
-      what + ', les ' + c.impls + ' implémentations à traiter et les décisions prises en séance.\n\n' +
-      'Chaque cas s’ouvre directement dans TOM depuis le PDF.\n\nBien cordialement,';
+    var c = sendCounts();
+    return 'Hello' + first + ',\n\n' +
+      'Please find attached the status of programme ' + p.name + ' as of ' + fmt(today()) + ':\n' +
+      scopeText() + ' — ' + plural(c.cases, 'case') + ', ' + plural(c.items, 'item') + '.\n\n' +
+      'Each case opens directly in ' + S.tool + ' from the PDF.\n\nBest regards,';
   }
 
   function sentView(r) {
-    return '<div class="done"><div class="ok">' + I.ok + '</div><h2>Fiche envoyée</h2>' +
-      '<p style="margin:0;font-size:16px;max-width:480px">Envoyée à <b>' + esc(r.to.join(', ')) + '</b>' + (r.cc.length ? ', copie à ' + esc(r.cc.join(', ')) : '') + '.</p>' +
-      (r.link ? '<p class="mut" style="margin:0">Une copie du PDF est rangée dans le cas Drive des revues · <a href="' + esc(r.link) + '" target="_blank" rel="noopener">ouvrir</a></p>' : '') +
-      '<div style="display:flex;gap:10px;margin-top:8px"><button type="button" class="btn" data-act="new-send">Nouvel envoi</button>' +
-      '<button type="button" class="btn btn-primary" data-act="back-prog">Revenir au programme</button></div></div>';
+    return '<div class="done"><div class="ok">' + I.ok + '</div><h2>Report sent</h2>' +
+      '<p style="margin:0;font-size:16px;max-width:480px">Sent to <b>' + esc(r.to.join(', ')) + '</b>' + (r.cc.length ? ', copy to ' + esc(r.cc.join(', ')) : '') + '.</p>' +
+      (r.link ? '<p class="mut" style="margin:0">A copy of the PDF is saved in the reports Drive folder · <a href="' + esc(r.link) + '" target="_blank" rel="noopener">open</a></p>' : '') +
+      '<div style="display:flex;gap:10px;margin-top:8px"><button type="button" class="btn" data-act="new-send">New e-mail</button>' +
+      '<button type="button" class="btn btn-primary" data-act="back-prog">Back to the programme</button></div></div>';
   }
 
   function setPreview(html) {
@@ -557,85 +510,49 @@
   function loadHome() {
     busy(true);
     return run('apiHome').then(function (h) {
-      S.me = h.me; S.refresh = h.refresh; S.programmes = h.programmes; S.recent = h.recent;
+      S.appName = h.appName || S.appName; S.user = h.user; S.refresh = h.refresh;
+      S.programmes = h.programmes; S.leaders = h.leaders; S.recent = h.recent;
       S.view = 'home'; render();
       var q = document.getElementById('q'); if (q) q.focus();
     }).catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
   }
 
-  function loadProgramme(name, meeting, keepTab) {
-    busy(true, 'Calcul de la vue ' + name + '…');
-    return run('apiProgramme', name, meeting || S.meeting).then(function (m) {
-      S.prog = m; S.meeting = m.meeting; S.view = 'prog'; S.limit = 60;
-      if (!keepTab) { S.tab = 'dossier'; S.nonVus = false; S.ogs = []; S.leader = ''; S.supplier = ''; S.withProp = false; }
+  function loadProgramme(name, keepState) {
+    busy(true, 'Loading ' + name + '…');
+    return run('apiProgramme', name).then(function (m) {
+      S.prog = m; S.view = 'prog'; S.limit = 50;
+      if (!keepState) {
+        S.sel = { kpi: 'open', sub: '', type: '' };
+        S.f = { ogs: [], leader: S.user.isLeader ? '' : S.homeLeader, supplier: '' };
+      }
+      if (S.f.leader && m.filters.leaders.indexOf(S.f.leader) === -1) S.f.leader = '';
       render(); window.scrollTo(0, 0);
     }).catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
   }
 
-  function saveTrack(article) {
-    var id = article.getAttribute('data-dossier');
-    var vu = article.querySelector('[data-f="vu"]').checked;
-    var decision = article.querySelector('[data-f="decision"]').value.trim();
-    var due = article.querySelector('[data-f="due"]').value;
-    S.prog.current[id] = { vu: vu, decision: decision, due: due };
-    article.classList.toggle('is-seen', vu);
-    var k = document.getElementById('kpi-seen');
-    if (k) k.innerHTML = seenKpiInner(stats(S.prog));
-    var flag = article.querySelector('.saved');
-    flag.textContent = 'Enregistrement…';
-    run('apiSaveSuivi', { programme: S.prog.name, date: S.meeting, dossier: id, vu: vu, decision: decision, due: due })
-      .then(function () { flag.textContent = 'Enregistré'; setTimeout(function () { flag.textContent = ''; }, 2500); })
-      .catch(function (e) { flag.textContent = ''; toast('Non enregistré : ' + errMsg(e), 'err'); });
+  function setSel(sel) {
+    S.sel = sel; S.limit = 50;
+    refreshProgramme();
   }
 
   function openSend() {
     var p = S.prog;
     S.send = {
       to: (p.lastTo || []).filter(function (x) { return isMail(x.email); }).map(function (x) { return { name: x.name || '', email: x.email }; }),
-      cc: [], subject: '[Revue programme] ' + p.name + ' · compte rendu du ' + fmt(S.meeting),
+      cc: [], subject: '[Programme status] ' + p.name + ' · ' + L.selectionLabel(S.sel) + ' · ' + fmt(today()),
       body: '', bodyTouched: false, saveDrive: true, log: true,
-      sugg: { to: [], cc: [] }, html: null, result: null,
-      seenOnly: stats(p).seen > 0
+      sugg: { to: [], cc: [] }, html: null, result: null
     };
     S.view = 'send'; render(); window.scrollTo(0, 0);
-    loadPreview();
-  }
-
-  function loadPreview() {
-    var s = S.send, f = document.getElementById('preview');
-    if (f) f.srcdoc = '<p style="font:14px Arial;color:#4A5B78;padding:24px">Mise à jour de l’aperçu…</p>';
-    var req = s.previewReq = (s.previewReq || 0) + 1;
-    run('apiFicheHtml', S.prog.name, S.meeting, scope({ seenOnly: s.seenOnly })).then(function (html) {
-      if (req !== s.previewReq) return;
-      s.html = html; setPreview(html);
-    }).catch(function (e) { toast('Aperçu indisponible : ' + errMsg(e), 'err'); });
-  }
-
-  /* Coche « cas vus uniquement » : met à jour le résumé, le message par défaut et l'aperçu. */
-  function refreshSendScope() {
-    var el = document.getElementById('send-scope');
-    if (el) el.innerHTML = sendScopeInner();
-    if (!S.send.bodyTouched) { var b = document.getElementById('body'); if (b) b.value = defaultBody(); }
-    loadPreview();
-  }
-
-  function sendCounts() {
-    var p = S.prog, ds = filteredDossiers(p);
-    var seen = ds.filter(function (d) { return p.current[d.id] && p.current[d.id].vu; });
-    var list = S.send && S.send.seenOnly ? seen : ds;
-    return { scope: ds.length, seen: seen.length, listed: list.length, impls: aggImpls(list).length };
-  }
-
-  function sendScopeInner() {
-    var c = sendCounts(), label = scopeLabel();
-    return '<span class="xs-lbl">Contenu de la fiche</span>' +
-      '<span class="sm"><b>' + c.listed + '</b> cas · ' + c.impls + ' implémentation' + (c.impls > 1 ? 's' : '') +
-      (label ? ' · <span class="mut">' + esc(label) + '</span>' : ' · <span class="mut">tout le programme</span>') + '</span>';
+    var f = document.getElementById('preview');
+    if (f) f.srcdoc = '<p style="font:14px Arial;color:#4A5B78;padding:24px">Building the preview…</p>';
+    run('apiFicheHtml', p.name, S.f, S.sel).then(function (html) { S.send.html = html; setPreview(html); })
+      .catch(function (e) { toast('Preview unavailable: ' + errMsg(e), 'err'); });
   }
 
   function taken(email) {
     email = email.toLowerCase();
-    return email === String(S.me).toLowerCase() ||
+    return email === String(S.user.email).toLowerCase() ||
       S.send.to.concat(S.send.cc).some(function (c) { return c.email.toLowerCase() === email; });
   }
 
@@ -659,61 +576,74 @@
         S.send.sugg[field] = (list || []).filter(function (pp) { return !taken(pp.email); });
         renderSugg(field);
       }).catch(function () {
-        toast('Annuaire indisponible : saisissez l’adresse complète puis Entrée.', 'err');
+        toast('Directory unavailable: type the full e-mail address, then Enter.', 'err');
       });
     }, 300);
   }
 
   function doSend() {
     var s = S.send;
-    if (!s.to.length) return;
+    if (!s.to.length || !sendCounts().cases) return;
     var payload = {
-      programme: S.prog.name, meeting: S.meeting, to: s.to, cc: s.cc,
+      programme: S.prog.name, to: s.to, cc: s.cc,
       subject: document.getElementById('subj').value,
       body: document.getElementById('body').value,
       saveDrive: document.getElementById('opt-drive').checked,
       log: document.getElementById('opt-log').checked,
-      filters: scope({ seenOnly: s.seenOnly })
+      filters: S.f, selection: S.sel
     };
-    busy(true, 'Génération du PDF et envoi…');
+    busy(true, 'Building the PDF and sending…');
     run('apiSendFiche', payload).then(function (r) {
       s.result = r; s.subject = payload.subject; s.body = payload.body; s.bodyTouched = true;
       render();
-    }).catch(function (e) { toast('Envoi impossible : ' + errMsg(e), 'err'); }).then(function () { busy(false); });
+    }).catch(function (e) { toast('Could not send: ' + errMsg(e), 'err'); }).then(function () { busy(false); });
   }
 
-  /* ---------- Événements ---------- */
+  /* ---------- Events ---------- */
   app.addEventListener('click', function (ev) {
     var el = ev.target.closest('[data-act]');
     if (!el) return;
     var act = el.getAttribute('data-act');
-    if (act === 'open-prog') loadProgramme(el.getAttribute('data-name'), today());
+    if (act === 'open-prog') loadProgramme(el.getAttribute('data-name'));
     else if (act === 'home') loadHome();
-    else if (act === 'tab') {
-      S.tab = el.getAttribute('data-tab');
-      if (S.tab === 'suivi') loadProgramme(S.prog.name, S.meeting, true);
-      else renderAnalysis();
+    else if (act === 'kpi') {
+      var k = el.getAttribute('data-kpi');
+      setSel({ kpi: k, sub: '', type: '' });
     }
-    else if (act === 'more') { S.limit += 60; renderAnalysis(); }
+    else if (act === 'sub') {
+      var sub = el.getAttribute('data-sub');
+      setSel({ kpi: S.sel.kpi, sub: S.sel.sub === sub ? '' : sub, type: '' });
+    }
+    else if (act === 'type') {
+      var t = el.getAttribute('data-type');
+      if (t === L.MISSING_KEY) setSel({ kpi: 'decision', sub: 'MISSING', type: '' });
+      else setSel({ kpi: S.sel.kpi, sub: S.sel.sub, type: S.sel.type === t ? '' : t });
+    }
+    else if (act === 'crumb') {
+      var lvl = Number(el.getAttribute('data-level'));
+      if (lvl === 0) setSel({ kpi: 'open', sub: '', type: '' });
+      else if (lvl === 1) setSel({ kpi: S.sel.kpi, sub: '', type: '' });
+      else setSel({ kpi: S.sel.kpi, sub: S.sel.sub, type: '' });
+    }
+    else if (act === 'more') { S.limit += 50; document.getElementById('cases').innerHTML = caseList(S.prog, current()); }
     else if (act === 'clear-filters') {
-      S.ogs = []; S.leader = ''; S.supplier = ''; S.limit = 60;
+      S.f = { ogs: [], leader: '', supplier: '' }; S.limit = 50;
       ['f-leader', 'f-supplier'].forEach(function (id) { var e = document.getElementById(id); if (e) e.value = ''; });
       Array.prototype.forEach.call(document.querySelectorAll('input[name="f-og"]'), function (c) { c.checked = false; });
-      refreshFiltered();
+      refreshProgramme();
     }
-    else if (act === 'meeting') loadProgramme(S.prog.name, el.getAttribute('data-date'), true);
     else if (act === 'export') {
-      busy(true, 'Création de l’export…');
-      run('apiExportSuivi', S.prog.name, S.meeting, scope())
-        .then(function (r) { toast('Export créé dans le cas Drive des revues', '', { url: r.url, label: 'Ouvrir' }); })
+      busy(true, 'Creating the export…');
+      run('apiExport', S.prog.name, S.f, S.sel)
+        .then(function (r) { toast('Export created (' + plural(r.rows, 'row') + ') in the reports Drive folder', '', { url: r.url, label: 'Open' }); })
         .catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
     }
     else if (act === 'send') openSend();
-    else if (act === 'back-prog') loadProgramme(S.prog.name, S.meeting, true);
+    else if (act === 'back-prog') { S.view = 'prog'; render(); window.scrollTo(0, 0); }
     else if (act === 'pdf-drive') {
-      busy(true, 'Génération du PDF…');
-      run('apiPdfToDrive', S.prog.name, S.meeting, scope({ seenOnly: S.send.seenOnly }))
-        .then(function (r) { toast('PDF enregistré dans Drive', '', { url: r.url, label: 'Ouvrir' }); })
+      busy(true, 'Building the PDF…');
+      run('apiPdfToDrive', S.prog.name, S.f, S.sel)
+        .then(function (r) { toast('PDF saved in Drive', '', { url: r.url, label: 'Open' }); })
         .catch(function (e) { toast(errMsg(e), 'err'); }).then(function () { busy(false); });
     }
     else if (act === 'rm') {
@@ -731,7 +661,7 @@
 
   app.addEventListener('input', function (ev) {
     var t = ev.target;
-    if (t.id === 'q') renderTiles(t.value);
+    if (t.id === 'q') { S.homeQuery = t.value; renderTiles(); }
     else if (t.hasAttribute('data-recip')) searchPeople(t.getAttribute('data-recip'), t.value);
     else if (t.id === 'body') { S.send.bodyTouched = true; S.send.body = t.value; }
     else if (t.id === 'subj') S.send.subject = t.value;
@@ -739,20 +669,16 @@
 
   app.addEventListener('change', function (ev) {
     var t = ev.target;
-    if (t.id === 'switch') loadProgramme(t.value, today());
-    else if (t.id === 'meeting') { if (/^\d{4}-\d{2}-\d{2}$/.test(t.value)) loadProgramme(S.prog.name, t.value, true); }
-    else if (t.id === 'nonvus') { S.nonVus = t.checked; S.limit = 60; renderAnalysis(); }
-    else if (t.id === 'withprop') { S.withProp = t.checked; S.limit = 60; renderAnalysis(); }
+    if (t.id === 'switch') loadProgramme(t.value, true);
+    else if (t.id === 'home-leader') { S.homeLeader = t.value; render(); }
     else if (t.name === 'f-og') {
-      S.ogs = Array.prototype.map.call(document.querySelectorAll('input[name="f-og"]:checked'), function (c) { return c.value; });
-      S.limit = 60; refreshFiltered();
+      S.f.ogs = Array.prototype.map.call(document.querySelectorAll('input[name="f-og"]:checked'), function (c) { return c.value; });
+      S.limit = 50; refreshProgramme();
     }
-    else if (t.id === 'opt-seen') { S.send.seenOnly = t.checked; refreshSendScope(); }
-    else if (t.id === 'f-leader') { S.leader = t.value; S.limit = 60; refreshFiltered(); }
-    else if (t.id === 'f-supplier') { S.supplier = t.value; S.limit = 60; refreshFiltered(); }
+    else if (t.id === 'f-leader') { S.f.leader = t.value; S.limit = 50; refreshProgramme(); }
+    else if (t.id === 'f-supplier') { S.f.supplier = t.value; S.limit = 50; refreshProgramme(); }
     else if (t.id === 'opt-drive') S.send.saveDrive = t.checked;
     else if (t.id === 'opt-log') S.send.log = t.checked;
-    else if (t.hasAttribute('data-f')) saveTrack(t.closest('[data-dossier]'));
   });
 
   app.addEventListener('keydown', function (ev) {
@@ -764,7 +690,7 @@
       var list = S.send.sugg[field] || [];
       if (list.length) addPerson(field, list[0]);
       else if (isMail(t.value)) addPerson(field, { name: '', email: t.value.trim() });
-      else if (t.value.trim()) toast('Adresse e-mail invalide.', 'err');
+      else if (t.value.trim()) toast('Invalid e-mail address.', 'err');
     } else if (ev.key === 'Escape') {
       S.send.sugg[field] = []; renderSugg(field);
     } else if (ev.key === 'Backspace' && !t.value && S.send[field].length) {
