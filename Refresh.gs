@@ -155,7 +155,7 @@ function codeMaps_() {
 /** true = open, false = closed, null = unknown status. */
 function implOpen_(status) {
   const n = normCode_(status);
-  if (!n) return null;
+  if (!n) return CODES.IMPL_STATUS_EMPTY === 'open' ? true : CODES.IMPL_STATUS_EMPTY === 'closed' ? false : null;
   const m = codeMaps_();
   if (m.status.has(n)) return m.status.get(n);
   const l = looseCode_(status);

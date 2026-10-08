@@ -7,6 +7,9 @@
  * Add new values here when the dashboard reports "Unclassified" solutions.
  */
 const CODES = {
+  // Column CU left empty: 'open', 'closed' or '' (= unclassified).
+  IMPL_STATUS_EMPTY: 'open',
+
   // Column CL: implementation type.
   IMPL_TYPE_MANUAL: [
     "contract",
