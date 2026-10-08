@@ -1,0 +1,246 @@
+Type d'implémentation | Manuel ?
+MP | Non manuel
+DS | Manuel
+CR | Non manuel
+PO | Manuel
+ECR (CorePDM) | Non manuel
+ECPF | Non manuel
+TE | Non manuel
+ECP2 | Non manuel
+ECP1B | Non manuel
+Letter/E-mail | Manuel
+RR | Non manuel
+QR / QTR | Manuel
+ECP (SAP) | Non manuel
+AMP | Non manuel
+ECR (SAP) | Non manuel
+ECP | Manuel
+Supplier name | Manuel
+Contract | Manuel
+Supplier offer | Manuel
+ECR | Manuel
+Qualification | Manuel
+ECP (CorePDM) | Non manuel
+Service Bulletin | Manuel
+MP/ECP1B | Manuel
+TN | Manuel
+MPC | Manuel
+RWSP | Non manuel
+QP | Manuel
+RNSP | Non manuel
+TE (WebTEK) | Non manuel
+
+Status | Ouvert ?
+Accepted | FALSE
+ACCEPTED_CG12 | FALSE
+CG5 | FALSE
+E | FALSE
+CLOSED With CR | FALSE
+AHG Agreed | FALSE
+Ready for QG1 | TRUE
+Released 09/03/2018 | FALSE
+RR Accepted on 27/07/2021. | FALSE
+CLOSED wo CR | FALSE
+RR in progress | TRUE
+RELEASED | FALSE
+IN PROGRESS | TRUE
+Go for development | FALSE
+Go for delivery | FALSE
+NHI Signed | FALSE
+Closed | FALSE
+CG4 | FALSE
+Cancelled | FALSE
+Rejected | FALSE
+In work | TRUE
+Withdrawn | FALSE
+Replaced | FALSE
+On Hold | FALSE
+SIGNED AH | FALSE
+Validated | FALSE
+Edited by Author / SDR | FALSE
+10b - Go for Delivery | FALSE
+10a - Go for Delivery | FALSE
+CLOSED With DIU | FALSE
+TR In Progress | TRUE
+10 - Completed | FALSE
+Go Delivery | FALSE
+OPEN_CG11 | TRUE
+Accepted on 07/11/2011. | FALSE
+Go for development (29/06/26) | FALSE
+Go for delivery (7/11/25) | FALSE
+01b - Pending Technical Check  | TRUE
+Engineering closed | FALSE
+COMPLETEDCG4 | FALSE
+UNDER_REVIEW_CG11 | TRUE
+05 - Workflow launch | TRUE
+Workflow launch | TRUE
+Workflow lunch | TRUE
+Under approval | TRUE
+CLOSEDCG5 | FALSE
+10b - Completed (Go for Delivery) | FALSE
+02 - Refusal at Quality check | FALSE
+JTCB Approved | FALSE
+Go for delivery (11/02/26) | FALSE
+CG31 | TRUE
+CG2 | TRUE
+"10 - Completed	 | FALSE"
+Technical check | TRUE
+10b. Go For Delivery | FALSE
+Pending Technical Check | TRUE
+CG3 | TRUE
+"	10 - Completed	 | FALSE"
+Accepted on 23/07/2013 | FALSE
+B | FALSE
+Accepted on 10/11/2017 | FALSE
+Completed  | FALSE
+A | FALSE
+Go for delivery (26/02/24) | FALSE
+Replacement of U183 74LVC27PW (Philips) | FALSE
+ 01b - Pending Technical Check  | TRUE
+11 - Cancelled | FALSE
+10a - Go for Development | FALSE
+06 - WFIP: 1 signature | TRUE
+ACCEPTED_CG11 | FALSE
+Accepted on 22/04/2021 | FALSE
+Accepted on 20/02/2020. | FALSE
+01b - Pending Technical Check | TRUE
+ID Created | TRUE
+Accepted on 20/01/2022 | FALSE
+Approved | FALSE
+for information only (ETSO) | FALSE
+Refusal at quality check | FALSE
+COMPLETED | FALSE
+02 - Refusal at check quality | FALSE
+REFUSED | FALSE
+Accepted on  13/11/2019 | FALSE
+RELEASED on 13/11/2019 | FALSE
+RR released on 17/11/2008 | FALSE
+Accepted on 29/03/2021. | FALSE
+Accepted on 16/04/2013. | FALSE
+Finalized | FALSE
+Workflow Launched | TRUE
+Released on 21/11/2007 | FALSE
+signed and go for delivery 21/01/21 | FALSE
+UNDER CB AGREEMENT | TRUE
+Accepted on 22/11/2006. | FALSE
+Accepted on 04/10/2005. | FALSE
+In progress.Thomas BECKE AH STD validation missing | FALSE
+Superseded | FALSE
+3648995020_01_AH_02 | FALSE
+Go For Developement | FALSE
+under Change Board agreement | TRUE
+10B-Completed (Go for Delivery) | FALSE
+INITIAL | FALSE
+Released on 12/10/2022 | FALSE
+10 Completed | FALSE
+10.b - Go for delivery | FALSE
+G | FALSE
+Closed Without CR | FALSE
+TCB | FALSE
+Airworthiness classification in progress | TRUE
+READY_FOR_CG12 | FALSE
+JTCB OK, waiting for TLS GO | TRUE
+Completed (Go Delivery) | FALSE
+Go for dev | FALSE
+Go for delivery. | FALSE
+READYFORCG5 | FALSE
+10a. Go For Developement | FALSE
+Refused at Quality Check | FALSE
+Signed | FALSE
+10b - Go fo delivery | FALSE
+Draft | TRUE
+signed and released | FALSE
+12 - On hold | FALSE
+On hold - waiting supplier signature | FALSE
+"	10b - Completed (Go for Delivery) | FALSE"
+Accepted on 27/02/2007. | FALSE
+Accepted on 30/06/2005 | FALSE
+C | FALSE
+10.b -Go For Delivery | FALSE
+Under Validation | FALSE
+WFIP | FALSE
+Go for delivery (26/06/25) | FALSE
+10a Go for development | FALSE
+10b - Completed Go for delivery | FALSE
+10. Go For Delivery | FALSE
+Go for delivery - new issue to remove NRC | FALSE
+Signed as go for delivery | FALSE
+Go for delivery  | FALSE
+Issue F - Go for Delivery | FALSE
+Signed Go for delivery | FALSE
+ongoing, waiting for Descision Sheet | TRUE
+Go for delivery, MPN added | FALSE
+10 - Go For Delivery | FALSE
+DS DATE 17.01.2023 | FALSE
+"08 - WFIP: 3 signatures	 | TRUE"
+OPEN_CG2 | TRUE
+Workflow Lauch | TRUE
+Signature Purchase but issue C awaited | TRUE
+Refusal at Signature | FALSE
+Merge with 5514 | FALSE
+REALESED | FALSE
+Cancelled (waiting for update) | FALSE
+Workflow Signature (1 signature) | TRUE
+Workflow signature launched | TRUE
+Worflow launch | TRUE
+09 - WFIP: 4 signatures | TRUE
+08 - WFIP: 3 signatures | TRUE
+On-hold | FALSE
+"10a - Go for Development	 | FALSE"
+Workflow signature | TRUE
+Go For Developpement | FALSE
+Go For Delivey | FALSE
+for info only | FALSE
+Go for development (18/02/26) | FALSE
+Go for delivery (10/06/26) | FALSE
+Technical Review | TRUE
+: 01b - Pending Technical Check | TRUE
+10b - Completed | FALSE
+To be started | FALSE
+Pending quality check | TRUE
+Go for developpment | FALSE
+Pending tehcnical check | TRUE
+Signed Go for DEVelopment | FALSE
+On Hold - Waiting for update request data | FALSE
+10a. Go For Delivery | FALSE
+READYFORCG4 | TRUE
+01b. Pending technical check | TRUE
+GO_FOR_DELIVERY | FALSE
+01 - Pending Technical Check | TRUE
+Go for del | FALSE
+07 - WFIP: 2 signatures | TRUE
+OPEN_CG0 | FALSE
+Link to 47019-00 | FALSE
+Quality Check | TRUE
+Merge with 5512 | FALSE
+Refused (07/11/25) | FALSE
+Go for delivery (11/02/25) | FALSE
+Go for delivery (11/03/2026) | FALSE
+Supplier Ref | FALSE
+Go for developmnt | FALSE
+Go for development (30/07/26) | FALSE
+administrative check | TRUE
+1àb. Go For Delivery | FALSE
+Workflow reminder | TRUE
+"01 - To be started	 | TRUE"
+TSO / for Info only | FALSE
+Go for delivery (01/07/25) | FALSE
+Signature Purchase | FALSE
+READY_FOR_CG11 | TRUE
+Go for delivery (18/11/25) | FALSE
+GO FOR DELIVERY THE 11/03/2026 | FALSE
+ECPF fournisseur | FALSE
+Go for delivery (17/09/25) | FALSE
+Go for development (20/08/2024) | FALSE
+Gor for Delivery | FALSE
+Signature purchase (25/08/25) | FALSE
+TECHNICAL_REVIEW | TRUE
+22/06/2026 : Technical check | TRUE
+ACCEPTEDCG3 | FALSE
+Go for devlopment | FALSE
+Workflow Signature : 3 signatures | TRUE
+Go for development (14/02/26) | FALSE
+Go for Delivery (16/07/26) | FALSE
+UNDERREVIEWCG2 | TRUE
+Pending Technical Check  | TRUE
+Technical inquiry | TRUE
